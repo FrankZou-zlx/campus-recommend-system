@@ -12,6 +12,9 @@
 #
 #   # 如果这次改动动了数据库表结构（schema.sql），额外加：
 #   sudo bash deploy/scripts/update.sh --schema
+#   # 默认会顺带补一批演示订单（只在订单表为空时生成，已有订单自动跳过）；
+#   # 不想让它碰订单数据就加：
+#   sudo bash deploy/scripts/update.sh --no-demo-orders
 #   # 如果想重新灌演示数据（会清空商品/订单/行为，慎用）：
 #   sudo bash deploy/scripts/update.sh --reseed
 # =====================================================================
@@ -26,10 +29,12 @@ API_ENV="/etc/campus-mall/api.env"
 
 DO_SCHEMA=0
 DO_RESEED=0
+SKIP_DEMO_ORDERS=0
 for arg in "$@"; do
   case "$arg" in
     --schema) DO_SCHEMA=1 ;;
     --reseed) DO_RESEED=1 ;;
+    --no-demo-orders) SKIP_DEMO_ORDERS=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "未知参数: $arg"; exit 1 ;;
   esac
@@ -89,10 +94,14 @@ chmod 640 "$API_ENV" 2>/dev/null || true
 c_ok "环境变量就绪（未改动已有配置）"
 
 step "4/5 数据库"
+# 以应用用户身份跑 node 脚本时，把数据库配置显式带过去（sudo 默认会清空环境变量）
+if [ -f "$API_ENV" ]; then set -a; . "$API_ENV"; set +a; fi
+KEEP_ENV="--preserve-env=DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME"
+
 if [ "$DO_RESEED" -eq 1 ]; then
-  c_info "重新灌入演示数据（FORCE=1）…"
-  sudo -u "$RUN_USER" FORCE=1 node "$DST/backend/sql/seed.js"
-  c_ok "演示数据已重灌"
+  c_info "重新灌入演示数据（FORCE=1，会清空商品/订单/行为）…"
+  sudo -u "$RUN_USER" "$KEEP_ENV" env FORCE=1 node "$DST/backend/sql/seed.js"
+  c_ok "演示数据已重灌（含历史订单）"
 elif [ "$DO_SCHEMA" -eq 1 ]; then
   DB_NAME="$(grep -oP '(?<=^DB_NAME=).*' "$API_ENV" 2>/dev/null || echo campus_mall)"
   DB_USER="$(grep -oP '(?<=^DB_USER=).*' "$API_ENV" 2>/dev/null || echo campus)"
@@ -101,6 +110,25 @@ elif [ "$DO_SCHEMA" -eq 1 ]; then
   mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$DST/backend/sql/schema.sql" && c_ok "表结构已更新"
 else
   c_info "跳过（含表结构变更时请加 --schema）"
+fi
+
+# 演示订单：空表时自动补一批。
+# 管理端「成交额 / 类目柱状图 / 近 7 日折线图」和卖家「我卖出的」都依赖订单数据，
+# 全新部署时若没有它，答辩时看板会显示 ¥0.00、图表全空。
+# seed-orders.js 自带幂等检查，已有订单会直接跳过，所以每次更新都跑也不会重复生成。
+if [ "$DO_RESEED" -eq 0 ]; then
+  if [ "$SKIP_DEMO_ORDERS" -eq 1 ]; then
+    c_info "已按 --no-demo-orders 跳过演示订单"
+  else
+    c_info "检查演示订单（空库时自动生成，已有订单则跳过）…"
+    if sudo -u "$RUN_USER" "$KEEP_ENV" node "$DST/backend/sql/seed-orders.js" > /tmp/seed-orders.log 2>&1; then
+      sed 's/^/     /' /tmp/seed-orders.log
+    else
+      printf '  \033[33m!\033[0m 演示订单生成失败（不影响服务运行）\n'
+      tail -3 /tmp/seed-orders.log | sed 's/^/     /'
+    fi
+    rm -f /tmp/seed-orders.log
+  fi
 fi
 
 step "5/5 重启服务与 Nginx"

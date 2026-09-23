@@ -9,6 +9,7 @@
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 const { query } = require('../src/db');
+const { seedOrders } = require('./seed-orders');
 
 // 可复现的伪随机数（线性同余）
 let _seed = 20260903;
@@ -125,6 +126,9 @@ async function main() {
 
   // 7) 一条公告
   await query('INSERT INTO notice(title,content) VALUES(?,?)', ['校园二手交易须知', '请线下交易时注意人身与财物安全，平台仅提供信息发布服务。']);
+
+  // 8) 历史订单（否则后台成交额 ¥0.00、图表全空、卖家「我卖出的」也是空的）
+  await seedOrders({ silent: false });
 
   const [itc] = await query('SELECT COUNT(*) c FROM interaction');
   const [pc] = await query('SELECT COUNT(*) c FROM product');

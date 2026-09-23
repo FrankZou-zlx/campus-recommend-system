@@ -288,8 +288,11 @@ firewall-cmd --list-all | grep -E "services|ports"
 ```bash
 cd /opt/campus-mall/backend
 set -a; . /etc/campus-mall/api.env; set +a
-node sql/seed.js
+node sql/seed.js          # 用户 + 商品 + 协同过滤行为，末段会自动补一批历史订单
 ```
+
+> 只想要订单（不动用户和商品）时，单独跑 `node sql/seed-orders.js`；
+> 它只在订单表为空时生成，已有订单会跳过。
 
 ### B3. 验证清单
 
@@ -330,14 +333,30 @@ sudo bash deploy/scripts/update.sh
 ```
 
 它会做五件事：同步代码到 `/opt/campus-mall` → 按需装依赖 → 检查环境变量与权限 →
-重载 Nginx（配置有变化时）→ 重启后端并验证。
+补齐演示订单（见下）→ 重载 Nginx（配置有变化时）→ 重启后端并验证。
 
-**两个可选参数**：
+**关于演示订单**：`update.sh` 每次都会跑一次 `backend/sql/seed-orders.js`，
+它**只在订单表为空时生成**一批历史订单（默认 48 笔、散布在近 14 天、状态各异、买家卖家不同人），
+已有订单则直接跳过 —— 所以反复执行不会重复生成。
+
+> 为什么需要它：种子脚本只造用户/商品/浏览行为，**不造订单**。没有订单时管理端会显示
+> 「成交额 ¥0.00」、类目柱状图空、近 7 日折线图全 0，卖家「我卖出的」也是空的，答辩时看着像没做完。
+
+**三个可选参数**：
 
 | 参数 | 什么时候用 |
 |---|---|
 | `--schema` | 这次改动动了 `backend/sql/schema.sql`（新增字段/表）。它只导入表结构，不清数据 |
+| `--no-demo-orders` | 不想让更新脚本碰订单数据（例如已在页面上手动交易过，不想混入模拟单） |
 | `--reseed` | 想重新灌演示数据（**会清空商品/订单/行为**，演示前重置用） |
+
+需要单独重造订单（例如想换一批）时：
+
+```bash
+sudo bash /opt/campus-mall/deploy/scripts/update.sh --no-demo-orders   # 先确保脚本不掺和
+cd /opt/campus-mall/backend
+sudo -u campus env FORCE=1 node sql/seed-orders.js                      # 清空订单后重灌
+```
 
 **改完前端记得让浏览器强刷一次**（Ctrl+F5）。Nginx 配置已把 JS/CSS 设为每次校验，
 正常情况下之后不需要再手动强刷。
