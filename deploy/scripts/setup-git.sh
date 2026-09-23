@@ -32,7 +32,12 @@ die()  { printf '  ✗ %s\n' "$1" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "请用 sudo 运行"
 id "$GIT_USER" >/dev/null 2>&1 || die "用户 $GIT_USER 不存在"
-command -v git >/dev/null 2>&1 || die "服务器没装 git：dnf install -y git"
+# 服务器首次部署时并没有装 git（install-rhel.sh 不需要它），这里自动补上
+if ! command -v git >/dev/null 2>&1; then
+  printf '  → 未检测到 git，正在安装…\n'
+  (dnf install -y git || yum install -y git) >/dev/null 2>&1 || die "安装 git 失败，请手动执行：dnf install -y git"
+fi
+ok "git 已就绪：$(git --version)"
 
 step "1/4 创建裸仓库 $REPO_DIR"
 mkdir -p "$(dirname "$REPO_DIR")"

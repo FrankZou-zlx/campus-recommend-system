@@ -31,6 +31,29 @@
 
 ## 二、一次性设置（只做一次，约 5 分钟）
 
+### 第 0 步：把代码传上去 —— 用 Git Bash 的 scp，别用 Xftp
+
+> ⚠️ **Xftp 连不上是正常的**：修 sshd 那次把服务器 OpenSSH 升到了 9.9，
+> 老版 Xftp 的算法协商对不上，只会报"连接到服务器时出现问题"这种笼统错误（服务器本身没问题）。
+> Git 自带的 ssh 是新版（9.9p1），**完全能连**，所以直接用命令传，不需要修 Xftp。
+
+在 **Windows 的 Git Bash** 里执行（`<服务器IP>` 换成你的，例如 172.24.126.135）：
+
+```bash
+scp "D:/workbuddy.file/2026-09-03-13-40-36/campus-mall-deploy.tar.gz" zou@<服务器IP>:/home/zou/
+```
+
+- 第一次连接会问 `Are you sure you want to continue connecting (yes/no/[fingerprint])?` → 输入 **yes** 回车；
+- 然后提示 `zou@<IP>'s password:` → 输入登录密码（**输入时屏幕不显示任何字符，这是正常的**），回车。
+
+传完在服务器上解压：
+
+```bash
+cd /home/zou && tar -xzf campus-mall-deploy.tar.gz && cd campus-mall
+```
+
+> 备选：如果你的 VMware 装了 VMware Tools，也可以直接把文件**拖进虚拟机窗口**。
+
 ### 第 1 步：在虚拟机上建仓库 + 装自动部署钩子
 
 ```bash
