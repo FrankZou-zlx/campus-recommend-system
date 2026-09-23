@@ -65,9 +65,24 @@ sudo bash deploy/scripts/setup-git.sh
 成功的话最后会打印出仓库路径和下一步命令。它会做四件事：
 创建裸仓库 → 准备检出目录 → 装 `post-receive` 钩子 → 给 `zou` 放行"免密执行 update.sh"（**最小权限：只放行这一个脚本**）。
 
+> 如果提示 `未检测到 git，正在安装…` 是正常的 —— 服务器首次部署时并不需要 git，
+> 脚本会自动 `dnf install -y git` 补上。
+
+### 第 1.5 步：确认 Windows 上能跑 `git`
+
+在 Windows 随便开一个命令行，输入：
+
+```bash
+git --version
+```
+
+- **显示版本号**（如 `git version 2.47.1.windows.1`）→ 跳过，直接下一步；
+- **提示"不是内部或外部命令"** → Windows 上还没装 Git。装法见
+  [《安装 Git for Windows》](#附录安装-git-for-windows)（约 60 MB，一路 Next 即可）。
+
 ### 第 2 步（建议）：配 SSH 免密，否则每次 push 都要输密码
 
-在 **Windows 的 Git Bash** 里（不是虚拟机）：
+在 Windows 开一个能跑 `git`/`ssh` 的命令行（装完 Git 后自带的 **Git Bash** 最方便）：
 
 ```bash
 # 1) 生成密钥（一路回车即可，不用设密码）
@@ -165,3 +180,21 @@ git push gitee main
 > 钩子内含语法预检与失败中止，**部署失败时线上保持旧版本**，避免半成品上线。
 
 这套话术的每一个点，代码里都真的实现了。下一步加 GitHub Actions（构建镜像 → 推送仓库）就串成完整流水线。
+
+---
+
+## 附录：安装 Git for Windows
+
+> 只有第 1.5 步里 `git --version` 报"不是内部或外部命令"时才需要做这一步。
+
+1. **下载**（华为云镜像，国内速度快，约 60 MB）：
+   `https://mirrors.huaweicloud.com/git-for-windows/v2.47.1.windows.1/Git-2.47.1-64-bit.exe`
+2. **双击安装**，一路 **Next** 即可（默认选项都对，不用改；装完会自带一个命令行工具 **Git Bash**）。
+3. ⚠️ **把已经打开的命令行窗口全部关掉，重新开一个** —— PATH 是窗口启动时读取的，不重开不生效。
+4. **验证**：新窗口里敲 `git --version`，能打印版本号就成功了。
+
+装完后开始菜单里会出现 **Git Bash**，以后所有 Git 命令都在它里面敲最省事。
+
+> 应急方案（不装任何东西）：WorkBuddy 自带了一份 PortableGit，双击
+> `C:/Users/zlx59/.workbuddy/vendor/PortableGit/bin/bash.exe` 也能得到一个能跑 git 的窗口。
+> 但它属于 WorkBuddy 的内部目录，软件更新后可能变动，**只当临时应急，不建议长期依赖**。
