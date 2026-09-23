@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# =====================================================================
+# 校园二手优选 —— 增量更新脚本
+#
+# 用途：把解压出来的最新源码同步到已部署的位置（默认 /opt/campus-mall），
+#       并重启后端、重载 Nginx。相比重跑 install-rhel.sh，它不做装包/建库，
+#       几秒钟完成，也不会动你的数据库。
+#
+# 用法：
+#   cd /home/zou/campus-mall          # 解压后的源码目录
+#   sudo bash deploy/scripts/update.sh
+#
+#   # 如果这次改动动了数据库表结构（schema.sql），额外加：
+#   sudo bash deploy/scripts/update.sh --schema
+#   # 如果想重新灌演示数据（会清空商品/订单/行为，慎用）：
+#   sudo bash deploy/scripts/update.sh --reseed
+# =====================================================================
+set -euo pipefail
+
+SRC="$(cd "$(dirname "$0")/../.." && pwd)"
+DST="${DST:-/opt/campus-mall}"
+RUN_USER="${RUN_USER:-campus}"
+NGINX_CONF="/etc/nginx/conf.d/campus-mall.conf"
+SVC="campus-mall-api"
+API_ENV="/etc/campus-mall/api.env"
+
+DO_SCHEMA=0
+DO_RESEED=0
+for arg in "$@"; do
+  case "$arg" in
+    --schema) DO_SCHEMA=1 ;;
+    --reseed) DO_RESEED=1 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    *) echo "未知参数: $arg"; exit 1 ;;
+  esac
+done
+
+c_ok()   { printf '  \033[32m✔\033[0m %s\n' "$1"; }
+c_info() { printf '  → %s\n' "$1"; }
+step()   { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
+
+[ "$(id -u)" -eq 0 ] || { echo "请用 sudo 运行"; exit 1; }
+[ -d "$DST" ] || { echo "找不到已部署目录 $DST，请先跑 install-rhel.sh"; exit 1; }
+[ -d "$SRC/frontend" ] || { echo "源码目录不对：$SRC"; exit 1; }
+
+step "1/5 同步代码到 $DST"
+# 前端、后端源码、演示版：整份覆盖
+rm -rf "$DST/frontend" "$DST/backend/src" "$DST/backend/sql" "$DST/deploy"
+cp -r "$SRC/frontend" "$DST/frontend"
+mkdir -p "$DST/backend"
+cp -r "$SRC/backend/src" "$DST/backend/src"
+cp -r "$SRC/backend/sql" "$DST/backend/sql"
+cp -r "$SRC/deploy" "$DST/deploy"
+[ -f "$SRC/package.json" ] && cp "$SRC/package.json" "$DST/" || true
+# backend 的 package.json / .env 必须保留（里面有数据库密码）
+if [ -f "$SRC/backend/package.json" ]; then cp "$SRC/backend/package.json" "$DST/backend/package.json"; fi
+# 演示版（可选）：一起带过去，/demo/ 路径就能看到最新的
+if [ -d "$SRC/demo" ]; then
+  mkdir -p "$DST/demo"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude='_*' "$SRC/demo/" "$DST/demo/"
+  else
+    cp -r "$SRC/demo/." "$DST/demo/"
+  fi
+fi
+# 自检 / 开发用文件（_ 开头）不该出现在服务器上：frontend 里会被公开访问，demo 里也没必要
+rm -f "$DST"/frontend/_* "$DST"/demo/_* 2>/dev/null || true
+chown -R "$RUN_USER:$RUN_USER" "$DST"
+c_ok "代码已同步"
+
+step "2/5 安装依赖（package.json 有变化时）"
+cd "$DST/backend"
+if [ -d "$DST/backend/node_modules" ] && [ -f "$DST/backend/node_modules/.installed-stamp" ]; then
+  c_info "node_modules 已存在，跳过（要强制重装：rm -rf node_modules 后再跑）"
+else
+  npm install --omit=dev --registry=https://registry.npmmirror.com >/dev/null 2>&1 || npm install --omit=dev >/dev/null 2>&1
+  touch "$DST/backend/node_modules/.installed-stamp"
+  c_ok "依赖已安装"
+fi
+
+step "3/5 环境变量与权限"
+if [ ! -f "$API_ENV" ]; then
+  echo "  未找到 $API_ENV，从模板生成"
+  cp "$SRC/deploy/env/api.env.example" "$API_ENV"
+  sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '=+/')/" "$API_ENV"
+fi
+chown root:"$RUN_USER" "$API_ENV" 2>/dev/null || true
+chmod 640 "$API_ENV" 2>/dev/null || true
+c_ok "环境变量就绪（未改动已有配置）"
+
+step "4/5 数据库"
+if [ "$DO_RESEED" -eq 1 ]; then
+  c_info "重新灌入演示数据（FORCE=1）…"
+  sudo -u "$RUN_USER" FORCE=1 node "$DST/backend/sql/seed.js"
+  c_ok "演示数据已重灌"
+elif [ "$DO_SCHEMA" -eq 1 ]; then
+  DB_NAME="$(grep -oP '(?<=^DB_NAME=).*' "$API_ENV" 2>/dev/null || echo campus_mall)"
+  DB_USER="$(grep -oP '(?<=^DB_USER=).*' "$API_ENV" 2>/dev/null || echo campus)"
+  DB_PASS="$(grep -oP '(?<=^DB_PASSWORD=).*' "$API_ENV" 2>/dev/null || true)"
+  c_info "导入表结构到 $DB_NAME（不会删数据）…"
+  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$DST/backend/sql/schema.sql" && c_ok "表结构已更新"
+else
+  c_info "跳过（含表结构变更时请加 --schema）"
+fi
+
+step "5/5 重启服务与 Nginx"
+# Nginx：配置有变化就重装并校验
+if [ -f "$SRC/deploy/nginx/campus-mall.conf" ]; then
+  if ! diff -q "$SRC/deploy/nginx/campus-mall.conf" "$NGINX_CONF" >/dev/null 2>&1; then
+    cp "$SRC/deploy/nginx/campus-mall.conf" "$NGINX_CONF"
+    c_info "Nginx 配置已更新"
+  fi
+fi
+if command -v nginx >/dev/null 2>&1; then
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx && c_ok "Nginx 已重载" || echo "  ⚠ Nginx 配置检查未通过，请跑 nginx -t 查看"
+fi
+systemctl restart "$SVC"
+sleep 2
+if systemctl is-active --quiet "$SVC"; then
+  c_ok "后端服务已重启并运行"
+else
+  echo "  ✗ 后端启动失败，日志："
+  journalctl -u "$SVC" -n 30 --no-pager
+  exit 1
+fi
+systemctl is-active --quiet mysqld 2>/dev/null && c_ok "MySQL 运行中" || true
+# SELinux 文件上下文（新复制进来的文件可能没有标签）
+if command -v restorecon >/dev/null 2>&1; then restorecon -R "$DST" >/dev/null 2>&1 || true; fi
+
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+cat <<EOF
+
+$(printf '\033[1m')更新完成$(printf '\033[0m')
+
+  前端系统   ：http://${IP:-<服务器IP>}/
+  接口探活   ：http://${IP:-<服务器IP>}/api/health
+
+  浏览器请按 Ctrl+F5 强刷一次（JS/CSS 现在不缓存了，之后不用再刷）
+  看日志     ：journalctl -u $SVC -f
+EOF

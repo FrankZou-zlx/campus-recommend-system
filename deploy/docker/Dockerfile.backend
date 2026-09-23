@@ -1,0 +1,35 @@
+# ============================================================
+#  校园二手优选 · 后端镜像（Node.js + Express + MySQL）
+#  构建上下文 = 项目根目录（需要同时拿到 backend/ 与 deploy/）
+#  构建：docker build -f deploy/docker/Dockerfile.backend -t campus-mall-api .
+# ============================================================
+FROM node:22-alpine
+
+# 时区：日志时间与校园本地一致
+ENV TZ=Asia/Shanghai
+
+WORKDIR /app
+
+# 1) 先只拷依赖清单，利用镜像层缓存（改代码不会重装依赖）
+COPY backend/package.json backend/package-lock.json ./
+
+# 2) 国内网络加速（npmmirror），仅装生产依赖
+RUN npm config set registry https://registry.npmmirror.com \
+ && npm ci --omit=dev \
+ && npm cache clean --force
+
+# 3) 再拷源码
+COPY backend/ ./
+
+# 4) 上传目录（生产环境通过 volume 挂载，容器重建不丢图）与运行用户
+RUN mkdir -p /app/uploads/products && chown -R node:node /app
+
+USER node
+
+EXPOSE 3001
+
+# 健康检查：/api/health 是后端自带的探活接口
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3001/api/health || exit 1
+
+CMD ["node", "src/app.js"]

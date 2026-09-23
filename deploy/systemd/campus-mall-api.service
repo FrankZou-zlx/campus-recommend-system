@@ -1,0 +1,45 @@
+# ============================================================
+#  校园二手优选 · 后端 API 服务单元（systemd）
+#  安装位置：/etc/systemd/system/campus-mall-api.service
+#
+#  常用命令：
+#    systemctl daemon-reload                 重新加载单元文件
+#    systemctl enable --now campus-mall-api  开机自启并立即启动
+#    systemctl status campus-mall-api        查看状态
+#    systemctl restart campus-mall-api       重启
+#    journalctl -u campus-mall-api -f        实时看日志
+# ============================================================
+[Unit]
+Description=Campus Mall API (Node.js + Express + MySQL)
+Documentation=file:///opt/campus-mall/LINUX-DEPLOY.md
+# 网络就绪、MySQL 启动之后再拉起后端
+# 注意：这里只写 After（顺序关系），不写 Requires —— 因为不同发行版的数据库
+#       服务名可能是 mysqld 或 mariadb，用 Requires 会导致单元加载失败。
+After=network-online.target mysqld.service mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=campus
+Group=campus
+WorkingDirectory=/opt/campus-mall/backend
+# 数据库密码、端口、JWT 密钥等都在这个文件里（权限 640，属主 campus）
+EnvironmentFile=/etc/campus-mall/api.env
+ExecStart=/usr/bin/node src/app.js
+# 进程异常退出自动重启（3 秒后，最快 5 秒内不会反复重启）
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+# 日志走 journald：journalctl -u campus-mall-api
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=campus-mall-api
+# 基本加固：禁止提权、独立临时目录
+NoNewPrivileges=true
+PrivateTmp=true
+# 文件句柄与进程数上限
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>selftest</title>
+<style>
+  body { margin: 0; font-family: Consolas, monospace; background: #111; color: #eee; }
+  #log { white-space: pre; font-size: 15px; padding: 8px 12px; background: #000; min-height: 40px; }
+  iframe { width: 1280px; height: 820px; border: 0; background: #fff; display: block; }
+</style>
+</head>
+<body>
+<div id="log">running…</div>
+<iframe id="f"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const mode = q.get('mode') || 'guest';
+  const f = document.getElementById('f');
+  const out = document.getElementById('log');
+  const log = (s) => { out.textContent += '\n' + s; console.log(s); };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const tok = (o) => btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+
+  // 视图切换依赖 CSS 过渡（headless + 虚拟时间下 rAF 不推进），所以统一用初始 hash 进入目标页
+  const hashOf = { admin: '#/admin', notice: '#/notice', adminnotice: '#/notice', adminalgo: '#/admin', publish: '#/publish' };
+
+  localStorage.removeItem('token'); localStorage.removeItem('adminToken'); localStorage.removeItem('adminName');
+  if (mode === 'search') {
+    // 预置搜索日志，让「最近搜索 / 大家都在搜」有数据
+    localStorage.setItem('demo_search_logs', JSON.stringify([
+      { user_id: 1, keyword: '高等数学', created_at: '2026-09-16 20:00' },
+      { user_id: 1, keyword: 'iPad', created_at: '2026-09-16 20:05' },
+      { user_id: 1, keyword: '考研资料', created_at: '2026-09-16 20:10' },
+      { user_id: 2, keyword: '高等数学', created_at: '2026-09-16 19:00' },
+      { user_id: 3, keyword: '二手自行车', created_at: '2026-09-16 18:00' }
+    ]));
+    localStorage.setItem('token', tok({ id: 1, username: 'user001', role: 'user' }));
+  } else if (mode === 'admin' || mode === 'adminnotice' || mode === 'adminhome' || mode === 'adminalgo') {
+    localStorage.setItem('adminToken', tok({ id: 0, username: 'admin', role: 'admin' }));
+    localStorage.setItem('adminName', 'admin');
+  } else if (mode !== 'guest') {
+    localStorage.setItem('token', tok({ id: 1, username: 'user001', role: 'user' }));
+  }
+
+  // 尽早挂上错误钩子，抓 iframe 里的运行时错误（Vue 渲染报错会体现为某块 DOM 直接空白）
+  const hookTimer = setInterval(() => {
+    try {
+      const w = f.contentWindow;
+      if (w && !w.__errHooked) {
+        w.__errHooked = true;
+        w.addEventListener('error', (e) => log('IFRAME_ERROR=' + (e.message || '')));
+        const ce = w.console.error;
+        w.console.error = function () {
+          const a = [].slice.call(arguments).map((x) => (x && (x.message || x.stack)) || String(x));
+          log('IFRAME_CONSOLE_ERROR=' + a.join(' ').slice(0, 400));
+          ce.apply(w.console, arguments);
+        };
+        clearInterval(hookTimer);
+      }
+    } catch (e) {}
+  }, 1);
+
+  f.addEventListener('load', async () => {
+    const d = f.contentDocument, w = f.contentWindow;
+    // 忽略 about:blank 的首次 load（否则会多跑一遍、拿到空文档）
+    if (!w.location.href || w.location.href === 'about:blank' || !d.querySelector('#app')) return;
+    try {
+      await sleep(1600);
+      log('MODE=' + mode);
+      // 直接在 iframe 里调 mock，看是数据层问题还是渲染层问题
+      try {
+        const api = w.__demoApi;
+        const r1 = await api.request({ method: 'get', url: '/product/list', data: { params: { page: 1, size: 12, keyword: '' } } });
+        log('DIRECT_API_LIST=' + JSON.stringify(r1.data).slice(0, 100));
+        const r2 = await api.request({ method: 'get', url: '/recommend/for-you', data: { params: { limit: 8 } } });
+        log('DIRECT_API_RECO=' + JSON.stringify(r2.data).slice(0, 80));
+      } catch (e) { log('DIRECT_API_ERR=' + e.message); }
+      log('GRID_CHILDREN=' + (d.querySelector('.grid') ? d.querySelector('.grid').children.length : 'no-grid'));
+      log('SK_CARDS=' + d.querySelectorAll('.sk-card').length + ' EMPTY_DIV=' + d.querySelectorAll('.empty').length + ' CARDS=' + d.querySelectorAll('.card').length);
+      const cont = d.querySelector('.container');
+      log('CONT_CHILDREN=' + (cont ? [...cont.children].map((c) => c.tagName + '.' + (c.className || '').split(' ')[0]).join(' > ') : 'no-container'));
+      log('CONT_NODES=' + (cont ? [...cont.childNodes].map((c) => (c.nodeType === 8 ? '#comment' : c.nodeType === 3 ? '#text' : c.tagName + '.' + (c.className || '').split(' ')[0])).join(' > ') : 'none'));
+      log('GRID_DIRECT=' + (cont ? cont.querySelectorAll(':scope > .grid').length : -1) + ' EMPTY_DIRECT=' + (cont ? cont.querySelectorAll(':scope > .empty').length : -1));
+      log('PRODUCT_CARDS=' + d.querySelectorAll('.card').length + ' SK=' + d.querySelectorAll('.sk-card').length);
+      log('BODY_HAS_EMPTY_TEXT=' + /暂无商品/.test(d.body.innerText));
+      log('ROOT_ADMIN_CLASS=' + !!d.querySelector('.admin-mode'));
+      log('NAV=' + [...d.querySelectorAll('.nav a')].map((a) => a.textContent.trim()).join(' | '));
+      log('STARRY_CANVAS=' + d.querySelectorAll('canvas.starry-bg').length);
+      const cv = d.querySelector('canvas.starry-bg');
+      if (cv) {
+        const cx = cv.getContext('2d');
+        const img = cx.getImageData(0, 0, cv.width, cv.height).data;
+        let lit = 0, sum = 0;
+        for (let i = 0; i < img.length; i += 4 * 97) { sum += img[i] + img[i + 1] + img[i + 2]; if (img[i + 1] > 60) lit++; }
+        log('CANVAS_PX=' + cv.width + 'x' + cv.height + ' 亮像素采样=' + lit + ' 平均亮度=' + Math.round(sum / (img.length / (4 * 97)) / 3));
+      }
+      log('ADD_BUTTONS=' + [...d.querySelectorAll('.card button')].filter((b) => /加购|收藏/.test(b.textContent)).length);
+      log('ADMIN_TIP=' + [...d.querySelectorAll('.admin-only-tip')].length);
+      log('CARD_COUNT=' + d.querySelectorAll('.card').length);
+      const card = d.querySelector('.card');
+      if (card) {
+        const r = card.getBoundingClientRect();
+        const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + 60);
+        const top = d.elementFromPoint(cx, cy);
+        log('CARD_BG=' + w.getComputedStyle(card).backgroundColor);
+        log('COVER_BG=' + (card.querySelector('.cover') ? w.getComputedStyle(card.querySelector('.cover')).backgroundImage.slice(0, 60) : 'n/a'));
+        log('TOP_ELEMENT_AT_CARD=' + (top ? top.className || top.tagName : 'null'));
+        log('MAIN_Z=' + w.getComputedStyle(d.querySelector('main')).zIndex + ' POS=' + w.getComputedStyle(d.querySelector('main')).position);
+        const cvv = d.querySelector('canvas.starry-bg');
+        log('CANVAS_Z=' + (cvv ? w.getComputedStyle(cvv).zIndex + ' OPACITY=' + w.getComputedStyle(cvv).opacity : 'none'));
+      }
+      log('PAGE_BG=' + w.getComputedStyle(d.querySelector('.admin-mode') || d.body).backgroundColor);
+      log('PRIMARY_VAR=' + w.getComputedStyle(d.querySelector('.admin-mode') || d.body).getPropertyValue('--el-color-primary').trim());
+      log('NAV_CURSOR=' + w.getComputedStyle(d.querySelector('.nav a')).cursor);
+      log('CARD_TITLE_CURSOR=' + w.getComputedStyle(d.querySelector('.card .title') || d.body).cursor);
+
+      if (mode === 'diag') {
+        const errs = w.__errs || [];
+        log('ERR_COUNT=' + errs.length);
+        errs.slice(0, 3).forEach((e, i) => log('ERR' + i + '=' + String(e).replace(/\s+/g, ' ').slice(0, 260)));
+      }
+
+      if (mode === 'searchux') {
+        const inp = d.querySelector('.topbar input');
+        // 导航是否横向单行：所有导航项的 top 应一致（换行/挤压时会出现两行）
+        const navA = [...d.querySelectorAll('.nav a')];
+        const tops = [...new Set(navA.map((a) => Math.round(a.getBoundingClientRect().top)))];
+        log('NAV_ITEMS=' + navA.length + ' NAV_ROWS=' + tops.length + ' NAV_HEIGHT=' + Math.round(d.querySelector('.nav').getBoundingClientRect().height));
+        log('NAV_CURSOR_POINTER=' + navA.every((a) => w.getComputedStyle(a).cursor === 'pointer'));
+        log('PLACEHOLDER=' + JSON.stringify(inp.getAttribute('placeholder')));
+        log('HAS_SEARCH_BUTTON=' + [...d.querySelectorAll('.topbar button')].some((b) => b.textContent.trim() === '搜索'));
+        log('CARD_IMGS=' + d.querySelectorAll('.card img').length + '/' + d.querySelectorAll('.card').length);
+        log('CARD_IMG_SRC_KIND=' + ((d.querySelector('.card img') || {}).src || '').slice(0, 30));
+        // 输入两个关键词并点「搜索」
+        inp.value = '考研 英语';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(300);
+        const btn = [...d.querySelectorAll('.topbar button')].find((b) => b.textContent.trim() === '搜索');
+        if (btn) btn.click();
+        await sleep(1200);
+        log('CHIPS_AFTER_SEARCH=' + d.querySelectorAll('.kw-chip').length + ' -> ' + [...d.querySelectorAll('.kw-chip')].map((c) => c.textContent.trim()).join('|'));
+        log('INPUT_CLEARED=' + JSON.stringify((d.querySelector('.topbar input') || {}).value || ''));
+        log('CARDS_AFTER_SEARCH=' + d.querySelectorAll('.card').length);
+        log('RECO_HIDDEN_WHEN_SEARCH=' + (d.querySelector('.reco') === null));
+        log('SECTION_TITLES=' + [...d.querySelectorAll('.section-title')].map((t) => t.textContent.trim()).join(' | '));
+        log('CARD_TITLES=' + [...d.querySelectorAll('.card .title')].map((t) => t.textContent.trim()).slice(0, 6).join(' / '));
+        // ?stop=1 时保留"搜索结果"画面用于截图，不做后续交互
+        if (/stop=1/.test(location.search)) {
+          log('DONE');
+          document.title = 'DONE-' + mode;
+          if (q.get('hidlog') === '1') { out.style.display = 'none'; f.style.height = '100vh'; f.style.width = '100vw'; await sleep(600); }
+          return;
+        }
+        // 点第一个关键词的 ×
+        const closeBtn = d.querySelector('.kw-chip .el-tag__close');
+        if (closeBtn) closeBtn.click();
+        await sleep(1000);
+        log('CHIPS_AFTER_CLOSE=' + d.querySelectorAll('.kw-chip').length);
+        log('CARDS_AFTER_CLOSE=' + d.querySelectorAll('.card').length);
+        // 先清空关键词，再搜一个不存在的词，验证空状态超链接
+        const clearBtn = [...d.querySelectorAll('.kw-bar button')].find((b) => b.textContent.trim() === '清空');
+        if (clearBtn) clearBtn.click();
+        await sleep(900);
+        log('AFTER_CLEAR_CHIPS=' + d.querySelectorAll('.kw-chip').length);
+        inp.value = '不存在的商品xyz';
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        await sleep(200);
+        const btn2 = [...d.querySelectorAll('.topbar button')].find((b) => b.textContent.trim() === '搜索');
+        if (btn2) btn2.click();
+        await sleep(1200);
+        log('EMPTY_LINK=' + !!d.querySelector('.link-go') + ' text=' + ((d.querySelector('.empty') || {}).innerText || '').replace(/\s+/g, ' '));
+        const lk = d.querySelector('.link-go');
+        if (lk) lk.click();
+        await sleep(900);
+        log('AFTER_CLICK_LINK_HASH=' + w.location.hash);
+      }
+
+      if (mode === 'publish') {
+        log('FILE_INPUT=' + d.querySelectorAll('input[type=file]').length);
+        log('JSON_ATTR=' + [...d.querySelectorAll('input[type=file]')].map((i) => i.getAttribute('multiple') !== null).join(','));
+        log('PAGE_TEXT_HAS_HINT=' + /最多 6 张/.test(d.body.innerText));
+        log('PUBLISH_BTN=' + [...d.querySelectorAll('button')].filter((b) => /发布商品/.test(b.textContent)).length);
+      }
+
+      if (mode === 'search') {
+        const rows = [...d.querySelectorAll('.search-tags .st-row')];
+        log('SEARCH_ROWS=' + rows.length);
+        log('SEARCH_MY=' + (rows[0] ? [...rows[0].querySelectorAll('.st-tag')].map((t) => t.textContent.trim()).join(' | ') : ''));
+        log('SEARCH_HOT=' + (rows[1] ? [...rows[1].querySelectorAll('.st-tag')].map((t) => t.textContent.trim()).join(' | ') : ''));
+        const first = rows[1] && rows[1].querySelector('.st-tag');
+        if (first) first.click();
+        await sleep(900);
+        log('AFTER_CLICK_SEARCHBOX=' + (d.querySelector('.topbar input') || {}).value);
+        log('AFTER_CLICK_CARDS=' + d.querySelectorAll('.card').length);
+      }
+
+      const chartCards = [...d.querySelectorAll('.chart-card')];
+      if (chartCards.length) {
+        log('CHART_CARDS=' + chartCards.length);
+        log('CHART_TITLES=' + chartCards.map((c) => (c.querySelector('.chart-title') || {}).textContent).join(' / '));
+        log('CHART_SVG=' + d.querySelectorAll('svg.mini-chart').length);
+        log('CHART_BARS=' + d.querySelectorAll('.mc-bar').length + ' DOTS=' + d.querySelectorAll('.mc-dot').length);
+        log('CHART_LABELS=' + [...d.querySelectorAll('.mc-label')].map((t) => t.textContent).join(','));
+      }
+
+      // 吸顶测试：滚到 900px 后顶栏是否仍在视口顶部（position: sticky 生效）
+      log('TOPBAR_TOP_BEFORE_SCROLL=' + Math.round(d.querySelector('.topbar').getBoundingClientRect().top));
+      w.scrollTo(0, 900);
+      await sleep(400);
+      log('SCROLL_Y=' + Math.round(w.scrollY));
+      log('TOPBAR_TOP_AFTER_SCROLL=' + Math.round(d.querySelector('.topbar').getBoundingClientRect().top));
+      log('TOPBAR_POSITION=' + w.getComputedStyle(d.querySelector('.topbar')).position);
+      w.scrollTo(0, 0);
+      await sleep(300);
+
+      if (mode === 'adminalgo') {
+        log('BODY_FIRST_CHILD=' + (d.body.firstElementChild ? (d.body.firstElementChild.id || d.body.firstElementChild.className) : 'none'));
+        log('MODULE_SELECT=' + !!d.querySelector('.admin-toolbar .el-select'));
+        const sel = d.querySelector('.admin-toolbar .el-select');
+        const trigger = sel && (sel.querySelector('.el-select__wrapper') || sel.querySelector('input'));
+        if (trigger) {
+          trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await sleep(700);
+        }
+        const opts = [...d.querySelectorAll('.el-select-dropdown__item')];
+        log('DROPDOWN_OPTIONS=' + opts.map((o) => o.textContent.trim()).join(' | '));
+        const target = opts.find((o) => o.textContent.includes('推荐算法行为数据'));
+        if (target) target.click();
+        await sleep(1600);
+        log('CF_NOTE=' + !!d.querySelector('.cf-note'));
+        log('CF_CHIPS=' + [...d.querySelectorAll('.cf-chip')].map((c) => c.textContent.replace(/\s+/g, ' ').trim()).join(' / '));
+        const tables = [...d.querySelectorAll('.el-table')];
+        log('TABLE_COUNT=' + tables.length);
+        log('PAIR_ROWS=' + (tables[0] ? tables[0].querySelectorAll('.el-table__row').length : 0));
+        log('PAIR_FIRST=' + (tables[0] ? (tables[0].querySelectorAll('.el-table__row')[0] || {}).innerText : '').replace(/\s+/g, ' '));
+        log('RECO_ROWS=' + (tables[2] ? tables[2].querySelectorAll('.el-table__row').length : 0));
+        log('RECO_FIRST=' + (tables[2] ? (tables[2].querySelectorAll('.el-table__row')[0] || {}).innerText : '').replace(/\s+/g, ' '));
+      }
+      // 元素绝对坐标（外层页 + iframe 偏移），供像素采样脚本使用
+      const fo = f.getBoundingClientRect();
+      const abs = (sel) => {
+        const e = d.querySelector(sel); if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return [Math.round(r.left + fo.left), Math.round(r.top + fo.top), Math.round(r.right + fo.left), Math.round(r.bottom + fo.top)].join(',');
+      };
+      log('RECT_TOPBAR=' + abs('.topbar'));
+      log('RECT_ALERT=' + abs('.el-alert'));
+      log('RECT_NOTICE=' + abs('.notice-board'));
+      log('RECT_CARD_COVER=' + abs('.card .cover'));
+      log('RECT_CARD_BODY=' + abs('.card .body'));
+      log('RECT_IFRAME=' + [Math.round(fo.left), Math.round(fo.top), Math.round(fo.right), Math.round(fo.bottom)].join(','));
+      log('DONE');
+      // ?hidlog=1：断言完成后隐藏日志、iframe 撑满视口，方便截一张干净的界面图
+      if (q.get('hidlog') === '1') {
+        out.style.display = 'none';
+        f.style.height = '100vh';
+        f.style.width = '100vw';
+        await sleep(600);
+      }
+      if (q.get('drop') === 'canvas') {
+        const c = d.querySelector('canvas.starry-bg');
+        if (c) c.remove();
+        log('CANVAS_REMOVED_FOR_TEST');
+      }
+      document.title = 'DONE-' + mode;
+    } catch (e) {
+      log('ERROR: ' + e.message);
+      document.title = 'ERROR';
+    }
+  });
+  f.src = (mode === 'diag')
+    ? 'about:blank'
+    : ('./index.html' + (hashOf[mode] || ''));
+
+  // diag 模式：先把 index.html 取回来、在最前面插入错误钩子，再用 srcdoc 加载，保证能抓到最早期的报错
+  if (mode === 'diag') {
+    fetch('./index.html').then((r) => r.text()).then((html) => {
+      const hook = '<scr' + 'ipt>window.__errs=[];window.addEventListener("error",function(e){window.__errs.push((e.message||"")+"  @"+String(e.filename||"").slice(-24)+":"+(e.lineno||0));});var _ce=console.error;console.error=function(){try{window.__errs.push([].slice.call(arguments).map(function(x){return (x&&(x.message||x.stack))||String(x);}).join(" ").slice(0,320));}catch(e){}_ce.apply(console,arguments);};</scr' + 'ipt>';
+      f.srcdoc = html.replace('<div id="app"></div>', hook + '\n  <div id="app"></div>');
+    });
+  }
+</script>
+</body>
+</html>

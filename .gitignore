@@ -1,0 +1,32 @@
+# ===== 依赖与构建产物（可由命令重建，不入库）=====
+node_modules/
+demo-dist/
+
+# ===== 运行时数据（用户上传的图片、日志）=====
+backend/uploads/
+*.log
+
+# ===== 环境变量与密钥（绝不入库）=====
+.env
+backend/.env
+deploy/env/api.env
+
+# ===== 本地开发 / 自检产物（不入库，也不该部署到服务器）=====
+.shots/
+.patch*.js
+.claude/
+
+# ===== 本地遗留 / 一次性脚本（不入库）=====
+._*.js
+backend/.setup-search-table.js
+
+# ===== 编辑器与系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# 说明：demo/ 下的 _selftest.html、_cftest*.js、_tplcheck.js、_params-check.js 等
+# 是回归自检工具，**有意入库**（属于工程资产）；部署时由 update.sh 自动排除，不会被公开访问。

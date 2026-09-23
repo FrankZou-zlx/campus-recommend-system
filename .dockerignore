@@ -1,0 +1,20 @@
+# 构建镜像时排除的文件（减小上下文体积、避免把本机依赖带进镜像）
+.git
+.gitignore
+.env
+*.log
+
+backend/node_modules
+backend/uploads
+backend/.env
+
+demo/_*.js
+demo/_*.html
+.shots
+.patch*.js
+*.bat
+
+# 文档与演示数据不影响运行，可按需保留
+README.md
+DEPLOY.md
+LINUX-DEPLOY.md

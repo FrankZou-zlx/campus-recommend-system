@@ -1,0 +1,20 @@
+# 换行符统一策略
+# 背景：这个项目在 Windows 上编辑、在 Linux 上运行。
+#   如果 shell 脚本被以 CRLF 存进仓库，Linux 上会报
+#   "/bin/bash^M: bad interpreter" —— 脚本直接跑不起来。
+# 所以：仓库里一律存 LF，检出时也用 LF；只有 Windows 批处理保留 CRLF。
+* text=auto eol=lf
+
+# Windows 专用批处理需要 CRLF
+*.bat text eol=crlf
+
+# 二进制文件不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2  binary
