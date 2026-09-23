@@ -93,6 +93,21 @@ sudo bash deploy/scripts/install-rhel.sh    # 装包→建库→systemd→Nginx�
 数据库定时备份用 `deploy/scripts/backup-db.sh`（配合 crontab），改完部署配置可用
 `python3 deploy/scripts/check-deploy.py` 做一次一致性自检。
 
+**后续更新代码**：不要再重跑 `install-rhel.sh`。用 Git 推送即自动部署（推荐，见 **[GIT-WORKFLOW.md](./GIT-WORKFLOW.md)**），
+或手动跑增量更新脚本：
+
+```bash
+sudo bash deploy/scripts/update.sh            # 同步代码 + 重载 Nginx + 重启后端，不碰数据库
+sudo bash deploy/scripts/update.sh --schema   # 这次动了表结构
+sudo bash deploy/scripts/update.sh --reseed   # 重新灌演示数据（会清空商品/订单/行为）
+```
+
+一次性搭建自建 Git 仓库与自动部署：
+
+```bash
+sudo bash deploy/scripts/setup-git.sh         # 服务器上执行一次
+```
+
 ## 七、目录结构
 ```
 campus-mall/
