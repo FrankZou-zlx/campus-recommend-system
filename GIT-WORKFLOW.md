@@ -97,8 +97,12 @@ ssh zou@<服务器IP> "echo 免密成功"
 
 ### 第 3 步：在 Windows 上把项目连到仓库并首次推送
 
+> ⚠️ **路径一定要用正斜杠 `/`**。Git Bash 里反斜杠是转义符，写 `cd D:\workbuddy...` 会报
+> `No such file or directory`（而且报错里反斜杠会消失，看着像路径被吞了）。
+
 ```bash
-cd D:/workbuddy.file/2026-09-03-13-40-36/campus-mall
+cd /d/workbuddy.file/2026-09-03-13-40-36/campus-mall
+# 或者用引号包起来写盘符：cd "D:/workbuddy.file/2026-09-03-13-40-36/campus-mall"
 
 # 加远程仓库（<服务器IP> 换成你的，比如 172.24.126.135）
 git remote add origin zou@<服务器IP>:/home/zou/repos/campus-mall.git
@@ -106,6 +110,9 @@ git remote add origin zou@<服务器IP>:/home/zou/repos/campus-mall.git
 # 首次推送（-u 记住这个远程，以后直接 git push）
 git push -u origin main
 ```
+
+> 注意 `git remote add` 里那个 `origin` **后面跟的冒号是远程路径的一部分**，
+> 和 Windows 盘符无关，不用改写法。
 
 推送过程中你会看到钩子的输出：`收到推送，开始自动部署` → `代码已同步` → `后端服务已重启并运行`。
 **看到这些就说明全链路通了。**
@@ -133,7 +140,10 @@ git push
 
 | 现象 | 原因与处理 |
 |---|---|
+| `cd D:\workbuddy...` 报 `No such file or directory`（报错里反斜杠全没了） | **Git Bash 里路径必须用正斜杠 `/`**。反斜杠在 bash 里是转义符（`\w` 会被吃成 `w`）。正确写法：`cd /d/workbuddy.file/2026-09-03-13-40-36/campus-mall` 或 `cd "D:/workbuddy.file/2026-09-03-13-40-36/campus-mall"` |
 | `git push` 报 `Permission denied` | SSH 连不上。先单独试 `ssh zou@<IP>`，能进就检查 `git remote -v` 里的路径有没有写错 |
+| `git push` 报 `does not appear to be a git repository` | 服务器端还没建仓库 —— 回到**第 1 步**跑 `sudo bash deploy/scripts/setup-git.sh` |
+| `git` 提示"不是内部或外部命令" | Windows 没装 Git，见[附录](#附录安装-git-for-windows)；装完**必须重开命令行窗口** |
 | push 成功，但页面没变 | ① 看钩子输出里有没有 `✗`（它会把失败原因打出来）② 服务器上 `journalctl -u campus-mall-api -n 30` 看后端 ③ `git status` 确认改动真的提交了 |
 | 钩子报 `update.sh 语法错误` | 脚本被改坏了。钩子会**中止部署、线上保持旧版本**，不会把服务搞挂。修好后重新 `git push` |
 | 想手动部署一次 | 服务器上 `sudo bash /home/zou/campus-mall/deploy/scripts/update.sh` |
