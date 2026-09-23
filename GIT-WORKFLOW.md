@@ -149,7 +149,7 @@ git push
 | 想手动部署一次 | 服务器上 `sudo bash /home/zou/campus-mall/deploy/scripts/update.sh` |
 | 这次改动了数据库表结构 | 手动跑 `sudo bash .../update.sh --schema`（钩子里只能免密跑不带参数的版本） |
 | 想重新灌演示数据 | `sudo bash .../update.sh --reseed`（**会清空商品/订单/行为**，演示前重置用） |
-| 后台成交额 ¥0.00、图表全空 | 库里没有订单。`update.sh` 会在订单表为空时自动补 48 笔演示订单；若被 `--no-demo-orders` 跳过，手动跑 `cd /opt/campus-mall/backend && sudo -u campus node sql/seed-orders.js` |
+| 后台成交额 ¥0.00、图表全空 | 库里没有订单。`update.sh` 在订单表为空时会自动补 48 笔演示订单，所以再跑一次 `sudo bash /opt/campus-mall/deploy/scripts/update.sh` 即可（已有订单会跳过，不会重复生成） |
 
 ### 回滚到上一个版本
 

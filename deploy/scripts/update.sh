@@ -94,13 +94,14 @@ chmod 640 "$API_ENV" 2>/dev/null || true
 c_ok "环境变量就绪（未改动已有配置）"
 
 step "4/5 数据库"
-# 以应用用户身份跑 node 脚本时，把数据库配置显式带过去（sudo 默认会清空环境变量）
+# 后续几个 node 脚本要连数据库，先把 api.env 载入当前 shell
+# （DB_USER/DB_PASSWORD 是 MySQL 账号，与系统用户无关，因此直接用 root 身份跑即可，
+#   这与 install-rhel.sh 灌种子数据的方式保持一致，也避免 sudo 清空环境变量）
 if [ -f "$API_ENV" ]; then set -a; . "$API_ENV"; set +a; fi
-KEEP_ENV="--preserve-env=DB_HOST,DB_PORT,DB_USER,DB_PASSWORD,DB_NAME"
 
 if [ "$DO_RESEED" -eq 1 ]; then
   c_info "重新灌入演示数据（FORCE=1，会清空商品/订单/行为）…"
-  sudo -u "$RUN_USER" "$KEEP_ENV" env FORCE=1 node "$DST/backend/sql/seed.js"
+  env FORCE=1 node "$DST/backend/sql/seed.js"
   c_ok "演示数据已重灌（含历史订单）"
 elif [ "$DO_SCHEMA" -eq 1 ]; then
   DB_NAME="$(grep -oP '(?<=^DB_NAME=).*' "$API_ENV" 2>/dev/null || echo campus_mall)"
@@ -121,7 +122,7 @@ if [ "$DO_RESEED" -eq 0 ]; then
     c_info "已按 --no-demo-orders 跳过演示订单"
   else
     c_info "检查演示订单（空库时自动生成，已有订单则跳过）…"
-    if sudo -u "$RUN_USER" "$KEEP_ENV" node "$DST/backend/sql/seed-orders.js" > /tmp/seed-orders.log 2>&1; then
+    if node "$DST/backend/sql/seed-orders.js" > /tmp/seed-orders.log 2>&1; then
       sed 's/^/     /' /tmp/seed-orders.log
     else
       printf '  \033[33m!\033[0m 演示订单生成失败（不影响服务运行）\n'

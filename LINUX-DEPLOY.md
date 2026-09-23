@@ -355,7 +355,8 @@ sudo bash deploy/scripts/update.sh
 ```bash
 sudo bash /opt/campus-mall/deploy/scripts/update.sh --no-demo-orders   # 先确保脚本不掺和
 cd /opt/campus-mall/backend
-sudo -u campus env FORCE=1 node sql/seed-orders.js                      # 清空订单后重灌
+set -a; . /etc/campus-mall/api.env; set +a
+FORCE=1 node sql/seed-orders.js                                        # 清空订单后重灌
 ```
 
 **改完前端记得让浏览器强刷一次**（Ctrl+F5）。Nginx 配置已把 JS/CSS 设为每次校验，
