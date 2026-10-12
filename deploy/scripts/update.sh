@@ -48,6 +48,26 @@ step()   { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 [ -d "$DST" ] || { echo "找不到已部署目录 $DST，请先跑 install-rhel.sh"; exit 1; }
 [ -d "$SRC/frontend" ] || { echo "源码目录不对：$SRC"; exit 1; }
 
+# ⚠️ 安全护栏（2026-10-12 加）：
+# 若在部署目录（/opt/campus-mall）内部执行本脚本，$SRC 会被推成 /opt/campus-mall，
+# 于是下面的 rm -rf 会先把源码自己删掉，再 cp 必然失败 → 线上前端整目录被删、站点 500。
+# 必须在「源码检出目录」里执行，例如：cd /home/zou/campus-mall && sudo bash deploy/scripts/update.sh
+if [ "$SRC" = "$DST" ]; then
+  cat >&2 <<ERR
+
+  ✗ 源码目录与部署目录相同：$SRC
+    不能在部署目录内部执行本脚本（会先删源码再复制，必然失败）。
+
+    请改用源码目录执行，例如：
+      cd /home/zou/campus-mall
+      sudo bash deploy/scripts/update.sh
+
+ERR
+  exit 1
+fi
+# 源目录必须是一份完整源码，防止把残缺目录同步上去
+[ -f "$SRC/frontend/index.html" ] || { echo "源码不完整：$SRC/frontend/index.html 不存在，已中止"; exit 1; }
+
 step "1/5 同步代码到 $DST"
 # 前端、后端源码、演示版：整份覆盖
 rm -rf "$DST/frontend" "$DST/backend/src" "$DST/backend/sql" "$DST/deploy"
