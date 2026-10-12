@@ -95,12 +95,16 @@ c_ok "代码已同步"
 
 step "2/5 安装依赖（package.json 有变化时）"
 cd "$DST/backend"
-if [ -d "$DST/backend/node_modules" ] && [ -f "$DST/backend/node_modules/.installed-stamp" ]; then
-  c_info "node_modules 已存在，跳过（要强制重装：rm -rf node_modules 后再跑）"
+PKG_HASH_FILE="$DST/backend/node_modules/.pkg-hash"
+NEW_HASH="$(sha256sum "$DST/backend/package.json" 2>/dev/null | awk '{print $1}')"
+OLD_HASH="$(cat "$PKG_HASH_FILE" 2>/dev/null || echo none)"
+if [ -d "$DST/backend/node_modules" ] && [ "$NEW_HASH" = "$OLD_HASH" ]; then
+  c_info "依赖无变化，跳过（要强制重装：rm -rf node_modules 后再跑）"
 else
   npm install --omit=dev --registry=https://registry.npmmirror.com >/dev/null 2>&1 || npm install --omit=dev >/dev/null 2>&1
-  touch "$DST/backend/node_modules/.installed-stamp"
-  c_ok "依赖已安装"
+  mkdir -p "$DST/backend/node_modules"
+  echo "$NEW_HASH" > "$PKG_HASH_FILE"
+  c_ok "依赖已安装/更新"
 fi
 
 step "3/5 环境变量与权限"

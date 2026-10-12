@@ -5,11 +5,15 @@ require('dotenv').config();
 
 const app = express();
 
+const { register, metricsMiddleware } = require('./utils/metrics');
+
 const allowed = (process.env.CLIENT_ORIGIN || 'http://localhost:5173').split(',');
 app.use(cors({ origin: allowed, credentials: true }));
 app.use(express.json());
 // 商品图片静态目录
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// 监控埋点：统计每个请求的数量 / 耗时 / 错误率（须在路由之前挂载）
+app.use(metricsMiddleware);
 
 // 路由
 app.use('/api/auth', require('./routes/auth'));
@@ -25,6 +29,12 @@ app.use('/api/recommend', require('./routes/recommend'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.get('/api/health', (req, res) => res.json({ code: 0, msg: 'ok' }));
+
+// Prometheus 指标端点：供 Prometheus 定时拉取
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
 
 // 兜底：任何路由抛错都不要把整个服务带崩（之前一条 SQL 写错就整台服务退出）
 app.use((req, res) => res.status(404).json({ code: 404, msg: '接口不存在: ' + req.method + ' ' + req.originalUrl }));
