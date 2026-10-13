@@ -661,9 +661,14 @@
         }));
       return { code: 0, data: res };
     }
-    if (parts[0] === 'order' && parts[1] === 'status') {
+    if (parts[0] === 'order' && ['pay', 'ship', 'confirm', 'cancel'].includes(parts[1]) && method === 'put') {
       const orders = getOrders(); const o = orders.find(x => x.id === Number(parts[2]));
-      if (o) o.status = Number(body.status); setOrders(orders); return { code: 0 };
+      if (!o) return { code: 1, msg: '订单不存在' };
+      const next = { pay: 1, ship: 2, confirm: 3, cancel: 4 }[parts[1]];
+      o.status = next;
+      if (parts[1] === 'ship') o.shipped_at = Date.now();
+      if (parts[1] === 'confirm') o.finished_at = Date.now();
+      setOrders(orders); return { code: 0 };
     }
 
     // === 个人资料 ===

@@ -113,9 +113,10 @@ async function seedOrders(opts) {
     }
     if (!chosen.length) continue;
 
-    // 状态：已完成 55% / 已付款 35% / 待付款 10%
+    // 状态分布贴近真实交易形态：已完成 50% / 已发货 22% / 已付款 20% / 待付款 8%
+    // 对应新语义：0=待付款 1=已付款 2=已发货·待收货 3=已完成 4=已取消
     const r = rnd();
-    const status = r < 0.55 ? 2 : (r < 0.90 ? 1 : 0);
+    const status = r < 0.50 ? 3 : (r < 0.72 ? 2 : (r < 0.92 ? 1 : 0));
 
     const addressId = await ensureAddress(buyer.id);
 

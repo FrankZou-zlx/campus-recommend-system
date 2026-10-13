@@ -69,11 +69,38 @@ router.get('/list', auth, async (req, res) => {
   res.json({ code: 0, data: orders });
 });
 
-// 订单状态更新（0待付款1已付款2已完成3已取消）
-router.put('/status/:id', auth, async (req, res) => {
-  const { status } = req.body;
-  await query('UPDATE `order` SET status=? WHERE id=? AND user_id=?', [status, req.params.id, req.user.id]);
-  res.json({ code: 0, msg: '已更新' });
+// 买家付款（0 待付款 → 1 已付款·待发货）
+router.put('/pay/:id', auth, async (req, res) => {
+  const r = await query('UPDATE `order` SET status=1 WHERE id=? AND user_id=? AND status=0', [req.params.id, req.user.id]);
+  if (r.affectedRows === 0) return res.status(400).json({ code: 400, msg: '该订单当前不可付款（可能已付款或不存在）' });
+  res.json({ code: 0, msg: '付款成功' });
+});
+
+// 卖家发货（1 已付款 → 2 已发货·待收货）；需校验当前用户确为该订单商品的卖家
+router.put('/ship/:id', auth, async (req, res) => {
+  const [chk] = await query(
+    `SELECT 1 FROM order_item oi JOIN product p ON p.id=oi.product_id
+     WHERE oi.order_id=? AND p.seller_id=? LIMIT 1`,
+    [req.params.id, req.user.id]
+  );
+  if (!chk.length) return res.status(403).json({ code: 403, msg: '您不是本单商品的卖家，无法发货' });
+  const r = await query('UPDATE `order` SET status=2, shipped_at=NOW() WHERE id=? AND status=1', [req.params.id]);
+  if (r.affectedRows === 0) return res.status(400).json({ code: 400, msg: '该订单当前不可发货（需为已付款状态）' });
+  res.json({ code: 0, msg: '已发货' });
+});
+
+// 买家确认收货（2 已发货 → 3 已完成）
+router.put('/confirm/:id', auth, async (req, res) => {
+  const r = await query('UPDATE `order` SET status=3, finished_at=NOW() WHERE id=? AND user_id=? AND status=2', [req.params.id, req.user.id]);
+  if (r.affectedRows === 0) return res.status(400).json({ code: 400, msg: '该订单当前不可确认收货（需为已发货状态）' });
+  res.json({ code: 0, msg: '已确认收货' });
+});
+
+// 买家取消订单（0 待付款 → 4 已取消）
+router.put('/cancel/:id', auth, async (req, res) => {
+  const r = await query('UPDATE `order` SET status=4 WHERE id=? AND user_id=? AND status=0', [req.params.id, req.user.id]);
+  if (r.affectedRows === 0) return res.status(400).json({ code: 400, msg: '该订单当前不可取消（仅未付款订单可取消）' });
+  res.json({ code: 0, msg: '已取消' });
 });
 
 // 我卖出的（商户视角）：当前用户发布的商品被下单的订单，并带买家收货地址

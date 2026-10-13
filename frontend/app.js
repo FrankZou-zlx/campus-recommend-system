@@ -641,15 +641,17 @@
   const Orders = {
     setup() {
       const orders = ref([]);
-      const statusText = ['待付款', '已付款', '已完成', '已取消'];
+      const statusText = ['待付款', '已付款', '已发货', '已完成', '已取消'];
       async function load() {
         if (!requireLogin()) return;
         const d = await U('get', '/order/list');
         if (d.code === 0) orders.value = d.data;
       }
-      async function setStatus(o, s) { await U('put', '/order/status/' + o.id, { status: s }); load(); }
+      async function pay(o) { await U('put', '/order/pay/' + o.id); load(); }
+      async function confirm(o) { await U('put', '/order/confirm/' + o.id); load(); }
+      async function cancel(o) { await U('put', '/order/cancel/' + o.id); load(); }
       onMounted(load);
-      return { orders, statusText, setStatus, money, go };
+      return { orders, statusText, pay, confirm, cancel, money, go };
     },
     template: `
       <div class="container">
@@ -657,7 +659,7 @@
         <div v-if="orders.length">
           <el-card v-for="o in orders" :key="o.id" style="margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div>订单号：{{ o.order_no }}　|　状态：<el-tag :type="['warning','success','info','info'][o.status]">{{ statusText[o.status] }}</el-tag></div>
+              <div>订单号：{{ o.order_no }}　|　状态：<el-tag :type="['warning','success','','info','info'][o.status]">{{ statusText[o.status] }}</el-tag></div>
               <div>合计：<b style="color:#f56c6c">{{ money(o.total) }}</b></div>
             </div>
             <el-table :data="o.items" size="small" style="margin-top:8px">
@@ -666,9 +668,10 @@
               <el-table-column prop="quantity" label="数量" width="80" />
             </el-table>
             <div style="margin-top:8px">
-              <el-button v-if="o.status===0" type="success" size="small" @click="setStatus(o,1)">付款</el-button>
-              <el-button v-if="o.status===1" type="primary" size="small" @click="setStatus(o,2)">确认收货</el-button>
-              <el-button v-if="o.status<2" text type="danger" size="small" @click="setStatus(o,3)">取消订单</el-button>
+              <el-button v-if="o.status===0" type="success" size="small" @click="pay(o)">付款</el-button>
+              <el-tag v-if="o.status===1" type="info" size="small">等待卖家发货</el-tag>
+              <el-button v-if="o.status===2" type="primary" size="small" @click="confirm(o)">确认收货</el-button>
+              <el-button v-if="o.status===0" text type="danger" size="small" @click="cancel(o)">取消订单</el-button>
             </div>
           </el-card>
         </div>
@@ -680,14 +683,15 @@
   const SoldOrders = {
     setup() {
       const orders = ref([]);
-      const statusText = ['待付款', '已付款', '已完成', '已取消'];
+      const statusText = ['待付款', '已付款', '已发货', '已完成', '已取消'];
       async function load() {
         if (!requireLogin()) return;
         const d = await U('get', '/order/sold');
         if (d.code === 0) orders.value = d.data;
       }
       onMounted(load);
-      return { orders, statusText, money, go };
+      async function ship(o) { await U('put', '/order/ship/' + o.id); load(); }
+      return { orders, statusText, ship, money, go };
     },
     template: `
       <div class="container">
@@ -695,7 +699,7 @@
         <div v-if="orders.length">
           <el-card v-for="o in orders" :key="o.id" style="margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div>订单号：{{ o.order_no }}　|　状态：<el-tag :type="['warning','success','info','info'][o.status]">{{ statusText[o.status] }}</el-tag></div>
+              <div>订单号：{{ o.order_no }}　|　状态：<el-tag :type="['warning','success','','info','info'][o.status]">{{ statusText[o.status] }}</el-tag></div>
               <div>合计：<b style="color:#f56c6c">{{ money(o.total) }}</b></div>
             </div>
             <el-table :data="o.items" size="small" style="margin-top:8px">
@@ -706,6 +710,8 @@
             <div style="margin-top:8px;padding:8px 10px;background:#faf3ee;border-radius:8px;color:#7a5a3a">
               买家：{{ o.buyer_name || '—' }}　|　电话：{{ o.buyer_phone || '—' }}　|　收货地址：{{ o.buyer_address || '—' }}
             </div>
+            <div v-if="o.status===0" style="margin-top:8px"><el-tag type="info" size="small">等待买家付款</el-tag></div>
+            <div v-if="o.status===1" style="margin-top:8px"><el-button type="primary" size="small" @click="ship(o)">发货</el-button></div>
           </el-card>
         </div>
         <div v-else class="empty">还没有同学购买你发布的商品。</div>
