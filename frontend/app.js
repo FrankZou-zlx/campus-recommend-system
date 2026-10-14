@@ -101,15 +101,37 @@
     route.name = name;
     route.params = params || {};
     let h = '#/';
-    if (name !== 'home') h += name + (params && params.id ? '/' + params.id : '');
+    if (name !== 'home') {
+      h += name + (params && params.id ? '/' + params.id : '');
+      // 除 id 外的参数必须编进查询串：否则改 hash 触发 hashchange 后 parseHash 会把它们清空，
+      // 导致「私信卖家」带来的 userId 丢失、会话无法自动打开（编进 URL 后刷新也能恢复）
+      const q = Object.keys(params || {}).filter(k => k !== 'id')
+        .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+      if (q) h += '?' + q;
+    }
     if (location.hash !== h) location.hash = h;
   }
   function parseHash() {
-    const h = (location.hash || '').replace(/^#\/?/, '');
+    let h = (location.hash || '').replace(/^#\/?/, '');
+    const qi = h.indexOf('?');
+    const query = {};
+    if (qi >= 0) {
+      h.slice(qi + 1).split('&').forEach(kv => {
+        if (!kv) return;
+        const eq = kv.indexOf('=');
+        const k = decodeURIComponent(eq >= 0 ? kv.slice(0, eq) : kv);
+        const v = decodeURIComponent(eq >= 0 ? kv.slice(eq + 1) : '');
+        if (k) query[k] = v;
+      });
+      h = h.slice(0, qi);
+    }
     const parts = h.split('/').filter(Boolean);
     if (!parts.length) { route.name = 'home'; route.params = {}; }
-    else if (parts[0] === 'product') { route.name = 'product'; route.params = { id: parts[1] }; }
-    else { route.name = parts[0]; route.params = {}; }
+    else {
+      route.name = parts[0];
+      route.params = { ...query };
+      if (parts[1] !== undefined && parts[1] !== '') route.params.id = parts[1];
+    }
   }
   window.addEventListener('hashchange', parseHash);
   parseHash();
@@ -527,7 +549,7 @@
       }
       function talk() {
         if (!requireLogin()) return;
-        go('messages', { userId: product.value.seller_id });
+        go('messages', { userId: product.value.seller_id, name: product.value.seller_name || '' });
       }
       function back() { go('home'); }
       // 图片：cover 优先，其次 images 数组
@@ -722,7 +744,7 @@
   const Publish = {
     setup() {
       const categories = ref([]);
-      const form = reactive({ title: '', description: '', price: '', stock: 1, category_id: '' });
+      const form = reactive({ title: '', description: '', price: '', stock: '', category_id: '' });
       const uploading = ref(false);
       const images = ref([]);            // 已上传成功的图片地址（第一张作封面）
       const fileInput = ref(null);
@@ -814,7 +836,7 @@
       async function loadContacts() {
         if (!requireLogin()) return;
         const d = await U('get', '/message/contacts');
-        if (d.code === 0) { contacts.value = d.data; if (route.params.userId) openTalk(route.params.userId, ''); }
+        if (d.code === 0) { contacts.value = d.data; if (route.params.userId) openTalk(route.params.userId, route.params.name || ''); }
       }
       async function openTalk(uid, name) {
         curId.value = Number(uid); curName.value = name || '';
@@ -836,7 +858,7 @@
         <div class="row" style="align-items:flex-start">
           <el-card style="width:240px;min-height:360px">
             <div v-if="!contacts.length" class="empty">暂无会话</div>
-            <div v-for="c in contacts" :key="c.from_id+'_'+c.to_id" class="card" style="margin-bottom:8px;cursor:pointer" :style="curId===(c.from_id===storeUserId?c.to_id:c.from_id)?'border-color:#f97316':''" @click="openTalk(c.from_id===userMe?c.to_id:c.from_id, c.nickname)">
+            <div v-for="c in contacts" :key="c.contact_id" class="card" style="margin-bottom:8px;cursor:pointer" :style="curId===c.contact_id?'border-color:#f97316':''" @click="openTalk(c.contact_id, c.nickname)">
               <div style="padding:8px 10px"><b>{{ c.nickname }}</b><div style="color:#909399;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.last_msg }}</div></div>
             </div>
           </el-card>

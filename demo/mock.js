@@ -695,7 +695,7 @@
         const peer = m.from_id === u.id ? m.to_id : m.from_id;
         if (!peers[peer] || m.created_at > peers[peer].last_time) {
           const pn = (userById(peer) || {}).nickname || ('用户' + peer);
-          peers[peer] = { from_id: peer, to_id: u.id, nickname: pn, last_msg: m.content, last_time: m.created_at };
+          peers[peer] = { contact_id: peer, nickname: pn, last_msg: m.content, last_time: m.created_at };
         }
       });
       return { code: 0, data: Object.values(peers).sort((a, b) => b.last_time - a.last_time) };
