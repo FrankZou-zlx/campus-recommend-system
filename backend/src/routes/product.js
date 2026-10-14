@@ -6,6 +6,7 @@ const fs = require('fs');
 const { query } = require('../db');
 const { auth } = require('../middleware/auth');
 const { pinyin } = require('pinyin-pro');
+const { sensitiveError } = require('../utils/sensitive');
 
 // 中文标题转拼音（全拼 + 首字母），用于支持拼音搜索（如 baoshi→保湿、smh→面膜）
 function toPinyin(title) {
@@ -89,6 +90,9 @@ router.get('/detail/:id', auth, async (req, res) => {
 router.post('/publish', auth, upload.single('cover'), async (req, res) => {
   const { title, description, price, stock, category_id } = req.body;
   if (!title || !price) return res.status(400).json({ code: 400, msg: '标题和价格必填' });
+  // 敏感词校验（服务端强制，前端绕过无效）
+  const se = sensitiveError(title, '标题') || sensitiveError(description, '描述');
+  if (se) return res.status(400).json({ code: 400, msg: se });
   // 前端先用 /product/image 上传拿到 url 列表，再随发布一起提交
   let imgs = [];
   try { imgs = req.body.images ? JSON.parse(req.body.images) : []; } catch (e) { imgs = []; }
@@ -115,6 +119,8 @@ router.put('/update/:id', auth, upload.single('cover'), async (req, res) => {
   const { title, description, price, stock, category_id, status } = req.body;
   const [own] = await query('SELECT id FROM product WHERE id=? AND seller_id=?', [req.params.id, req.user.id]);
   if (!own) return res.status(403).json({ code: 403, msg: '无权限' });
+  const se = sensitiveError(title, '标题') || sensitiveError(description, '描述');
+  if (se) return res.status(400).json({ code: 400, msg: se });
   const catId = Number(category_id) || 0;
   if (!catId) return res.status(400).json({ code: 400, msg: '请选择商品分类' });
   const [cat] = await query('SELECT id FROM category WHERE id=?', [catId]);

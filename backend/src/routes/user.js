@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../db');
 const { auth } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
+const { sensitiveError } = require('../utils/sensitive');
 
 // 手机号校验：必须 11 位数字（与前端提示文案保持一致）
 // required=true 时不允许为空；返回 '' 表示通过，否则返回给用户看的原因
@@ -30,6 +31,8 @@ router.put('/profile', auth, async (req, res) => {
   const { nickname, email, phone, avatar } = req.body;
   const pe = phoneError(phone, false);
   if (pe) return res.status(400).json({ code: 400, msg: pe });
+  const se = sensitiveError(nickname, '昵称');
+  if (se) return res.status(400).json({ code: 400, msg: se });
   await query(
     'UPDATE user SET nickname=?,email=?,phone=?,avatar=? WHERE id=?',
     [nickname || '', email || '', String(phone || '').trim(), avatar || '', req.user.id]

@@ -2,11 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
 const { auth } = require('../middleware/auth');
+const { sensitiveError } = require('../utils/sensitive');
 
 // 发送私信
 router.post('/send', auth, async (req, res) => {
   const { to_id, content } = req.body;
   if (!to_id || !content) return res.status(400).json({ code: 400, msg: '收件人和内容必填' });
+  const se = sensitiveError(content, '私信内容');
+  if (se) return res.status(400).json({ code: 400, msg: se });
   await query('INSERT INTO message(from_id,to_id,content) VALUES(?,?,?)', [req.user.id, to_id, content]);
   res.json({ code: 0, msg: '发送成功' });
 });
