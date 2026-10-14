@@ -641,7 +641,7 @@
   const Orders = {
     setup() {
       const orders = ref([]);
-      const statusText = ['待付款', '已付款', '已发货', '已完成', '已取消'];
+      const statusText = ['待付款', '已付款', '已发货·待收货', '已完成', '已取消'];
       async function load() {
         if (!requireLogin()) return;
         const d = await U('get', '/order/list');
@@ -683,7 +683,7 @@
   const SoldOrders = {
     setup() {
       const orders = ref([]);
-      const statusText = ['待付款', '已付款', '已发货', '已完成', '已取消'];
+      const statusText = ['待付款', '已付款', '已发货·待收货', '已完成', '已取消'];
       async function load() {
         if (!requireLogin()) return;
         const d = await U('get', '/order/sold');
