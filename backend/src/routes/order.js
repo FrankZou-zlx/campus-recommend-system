@@ -83,7 +83,7 @@ router.put('/ship/:id', auth, async (req, res) => {
      WHERE oi.order_id=? AND p.seller_id=? LIMIT 1`,
     [req.params.id, req.user.id]
   );
-  if (!chk.length) return res.status(403).json({ code: 403, msg: '您不是本单商品的卖家，无法发货' });
+  if (!chk) return res.status(403).json({ code: 403, msg: '您不是本单商品的卖家，无法发货' });
   const r = await query('UPDATE `order` SET status=2, shipped_at=NOW() WHERE id=? AND status=1', [req.params.id]);
   if (r.affectedRows === 0) return res.status(400).json({ code: 400, msg: '该订单当前不可发货（需为已付款状态）' });
   res.json({ code: 0, msg: '已发货' });
