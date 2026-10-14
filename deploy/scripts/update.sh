@@ -137,6 +137,21 @@ else
   c_info "跳过（含表结构变更时请加 --schema）"
 fi
 
+# 幂等数据迁移：新增列 / 状态机升级（如订单 4 态→5 态）。
+# 放在 DB 段落之后、始终执行——脚本本身做了「列存在性检查」与「状态值去重」，
+# 可反复安全跑；这样哪怕这次 push 没带 --schema，表结构变更也能在钩子自动部署时一并生效。
+if [ -f "$DST/backend/sql/migrate-order-status.js" ]; then
+  c_info "执行幂等数据迁移（订单状态机升级 / 新增列）…"
+  if node "$DST/backend/sql/migrate-order-status.js" > /tmp/migrate-order.log 2>&1; then
+    sed 's/^/     /' /tmp/migrate-order.log
+    c_ok "数据迁移完成"
+  else
+    printf '  \033[33m!\033[0m 数据迁移失败，日志：\n'
+    tail -10 /tmp/migrate-order.log | sed 's/^/     /'
+  fi
+  rm -f /tmp/migrate-order.log
+fi
+
 # 演示订单：空表时自动补一批。
 # 管理端「成交额 / 类目柱状图 / 近 7 日折线图」和卖家「我卖出的」都依赖订单数据，
 # 全新部署时若没有它，答辩时看板会显示 ¥0.00、图表全空。
