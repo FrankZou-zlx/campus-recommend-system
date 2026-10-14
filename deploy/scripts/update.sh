@@ -152,6 +152,19 @@ if [ -f "$DST/backend/sql/migrate-order-status.js" ]; then
   rm -f /tmp/migrate-order.log
 fi
 
+# 幂等迁移：product 表补 title_pinyin / title_initials 并回填存量拼音（支持拼音搜索）
+if [ -f "$DST/backend/sql/migrate-product-pinyin.js" ]; then
+  c_info "执行幂等数据迁移（商品拼音字段）…"
+  if node "$DST/backend/sql/migrate-product-pinyin.js" > /tmp/migrate-pinyin.log 2>&1; then
+    sed 's/^/     /' /tmp/migrate-pinyin.log
+    c_ok "商品拼音迁移完成"
+  else
+    printf '  \033[33m!\033[0m 商品拼音迁移失败，日志：\n'
+    tail -10 /tmp/migrate-pinyin.log | sed 's/^/     /'
+  fi
+  rm -f /tmp/migrate-pinyin.log
+fi
+
 # 演示订单：空表时自动补一批。
 # 管理端「成交额 / 类目柱状图 / 近 7 日折线图」和卖家「我卖出的」都依赖订单数据，
 # 全新部署时若没有它，答辩时看板会显示 ¥0.00、图表全空。

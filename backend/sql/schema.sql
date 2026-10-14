@@ -54,6 +54,8 @@ CREATE TABLE `product` (
   `stock`       INT UNSIGNED NOT NULL DEFAULT 1,
   `cover`       VARCHAR(255) DEFAULT '' COMMENT '封面图URL',
   `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '1=在售 0=下架',
+  `title_pinyin`    VARCHAR(255) NOT NULL DEFAULT '' COMMENT '标题全拼(小写)，用于拼音搜索',
+  `title_initials`  VARCHAR(60)  NOT NULL DEFAULT '' COMMENT '标题拼音首字母(小写)，用于首字母搜索',
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_category` (`category_id`),

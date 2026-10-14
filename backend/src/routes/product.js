@@ -5,6 +5,15 @@ const path = require('path');
 const fs = require('fs');
 const { query } = require('../db');
 const { auth } = require('../middleware/auth');
+const { pinyin } = require('pinyin-pro');
+
+// 中文标题转拼音（全拼 + 首字母），用于支持拼音搜索（如 baoshi→保湿、smh→面膜）
+function toPinyin(title) {
+  const t = String(title || '');
+  const full = pinyin(t, { toneType: 'none', type: 'array' }).join('').toLowerCase();
+  const init = pinyin(t, { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase();
+  return { full, init };
+}
 
 // 图片上传配置：存到 backend/uploads/products
 const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'products');
@@ -40,12 +49,12 @@ router.get('/list', async (req, res) => {
   const termParams = [];           // SELECT 里算命中数用
   let hitExpr = '0';
   if (terms.length) {
-    const parts = terms.map(() => '(p.title LIKE ? OR p.description LIKE ? OR c.name LIKE ?)');
+    const parts = terms.map(() => '(p.title LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR p.title_pinyin LIKE ? OR p.title_initials LIKE ?)');
     where.push('(' + parts.join(' OR ') + ')');
     terms.forEach((t) => {
       const like = '%' + t + '%';
-      params.push(like, like, like);
-      termParams.push(like, like, like);
+      params.push(like, like, like, like, like);
+      termParams.push(like, like, like, like, like);
     });
     hitExpr = parts.map((p) => '(' + p + ')').join(' + ');
   }
@@ -90,9 +99,10 @@ router.post('/publish', auth, upload.single('cover'), async (req, res) => {
   if (!catId) return res.status(400).json({ code: 400, msg: '请选择商品分类' });
   const [cat] = await query('SELECT id FROM category WHERE id=?', [catId]);
   if (!cat) return res.status(400).json({ code: 400, msg: '所选分类不存在，请重新选择' });
+  const py = toPinyin(title);
   const r = await query(
-    'INSERT INTO product(seller_id,category_id,title,description,price,stock,cover) VALUES(?,?,?,?,?,?,?)',
-    [req.user.id, catId, title, description || '', price, stock || 1, cover]
+    'INSERT INTO product(seller_id,category_id,title,description,price,stock,cover,title_pinyin,title_initials) VALUES(?,?,?,?,?,?,?,?,?)',
+    [req.user.id, catId, title, description || '', price, stock || 1, cover, py.full, py.init]
   );
   for (const u of imgs) {
     if (u) await query('INSERT INTO product_image(product_id,url) VALUES(?,?)', [r.insertId, u]);
@@ -110,10 +120,11 @@ router.put('/update/:id', auth, upload.single('cover'), async (req, res) => {
   const [cat] = await query('SELECT id FROM category WHERE id=?', [catId]);
   if (!cat) return res.status(400).json({ code: 400, msg: '所选分类不存在，请重新选择' });
   const coverSql = req.file ? ',cover=?' : '';
-  const params = [title, description || '', price, stock || 1, catId, status ?? 1];
+  const py = toPinyin(title);
+  const params = [title, description || '', price, stock || 1, catId, status ?? 1, py.full, py.init];
   if (req.file) params.splice(5, 0, '/uploads/products/' + req.file.filename);
   params.push(req.params.id);
-  await query(`UPDATE product SET title=?,description=?,price=?,stock=?,category_id=?,status=? ${coverSql} WHERE id=?`, params);
+  await query(`UPDATE product SET title=?,description=?,price=?,stock=?,category_id=?,status=?,title_pinyin=?,title_initials=? ${coverSql} WHERE id=?`, params);
   res.json({ code: 0, msg: '更新成功' });
 });
 
@@ -142,6 +153,19 @@ router.post('/image', auth, upload.array('images', 6), async (req, res) => {
 router.post('/favorite/:id', auth, async (req, res) => {
   await recordInteraction(req.user.id, req.params.id, 'favorite', 3);
   res.json({ code: 0, msg: '已收藏' });
+});
+
+// 我的收藏（取当前用户收藏过的在售商品）
+router.get('/favorites', auth, async (req, res) => {
+  const rows = await query(
+    `SELECT p.id, p.title, p.price, p.cover, p.category_id, c.name AS category_name
+     FROM product p LEFT JOIN category c ON p.category_id = c.id
+     WHERE p.status = 1
+       AND p.id IN (SELECT product_id FROM interaction WHERE user_id = ? AND type = 'favorite')
+     ORDER BY p.created_at DESC`,
+    [req.user.id]
+  );
+  res.json({ code: 0, data: rows });
 });
 
 module.exports = router;

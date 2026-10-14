@@ -8,8 +8,8 @@ const { itemCF } = require('../services/recommend');
 router.get('/for-you', auth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 8;
-    const list = await itemCF(req.user.id, limit);
-    res.json({ code: 0, data: list });
+    const { list, basis } = await itemCF(req.user.id, limit);
+    res.json({ code: 0, data: list, basis: basis || [] });
   } catch (e) {
     res.status(500).json({ code: 500, msg: '推荐失败: ' + e.message });
   }

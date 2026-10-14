@@ -248,6 +248,7 @@
         </div>
         <div class="body">
           <div class="title">{{ product.title }}</div>
+          <div class="reco-reason" v-if="product.reason">{{ product.reason }}</div>
           <div class="meta">
             <span class="price"><small>¥</small>{{ (Number(product.price)||0).toFixed(2) }}</span>
             <span class="cat-tag">{{ product.category_name || '未分类' }}</span>
@@ -385,6 +386,7 @@
       const categories = ref([]);
       const products = ref([]);
       const recommend = ref([]);
+      const basis = ref([]);
       const total = ref(0);
       const page = ref(1);
       const size = 12;
@@ -403,9 +405,9 @@
         loading.value = false;
       }
       async function loadRecommend() {
-        if (!isLogin()) { recommend.value = []; return; }
+        if (!isLogin()) { recommend.value = []; basis.value = []; return; }
         const d = await U('get', '/recommend/for-you', { params: { limit: 8 } });
-        if (d.code === 0) recommend.value = d.data || [];
+        if (d.code === 0) { recommend.value = d.data || []; basis.value = d.basis || []; }
       }
       function pickCat(id) { activeCat.value = id; loadProducts(1); }
       function onSearch() { loadProducts(1); }
@@ -460,7 +462,7 @@
       watch(() => store.searchTick, () => { loadProducts(1); logSearch(store.keywords.join(' ')); });
       watch(() => store.token, () => loadRecommend());
 
-      return { categories, products, recommend, total, activeCat, loading, pickCat, onSearch, onPage, refreshReco, money, go, isLogin, notices, isAdmin, myKeywords, hotKeywords, useKeyword, clearMine, keywords, removeKw, clearKw, goPublish };
+      return { categories, products, recommend, basis, total, activeCat, loading, pickCat, onSearch, onPage, refreshReco, money, go, isLogin, notices, isAdmin, myKeywords, hotKeywords, useKeyword, clearMine, keywords, removeKw, clearKw, goPublish };
     },
     template: `
       <div class="container">
@@ -475,7 +477,7 @@
         </div>
 
         <div class="reco" v-if="isLogin() && !keywords.length">
-          <div class="section-title"><span class="bar"></span>猜你喜欢 · 基于协同过滤算法</div>
+          <div class="section-title"><span class="bar"></span>猜你喜欢{{ basis.length ? ' · 基于你收藏的「' + basis.join('、') + '」' : ' · 基于协同过滤算法' }}</div>
           <div class="hint">根据你和其他同学的浏览 / 收藏 / 购买行为，实时计算商品相似度后推荐。</div>
           <div class="grid">
             <product-card v-for="p in recommend" :key="'r'+p.id" :product="p" />
@@ -953,6 +955,33 @@
       </div>`
   };
 
+  // ---------- 我的收藏 ----------
+  const Favorites = {
+    setup() {
+      const list = ref([]);
+      const loading = ref(true);
+      async function load() {
+        if (!requireLogin()) return;
+        loading.value = true;
+        const d = await U('get', '/product/favorites');
+        if (d.code === 0) list.value = d.data || [];
+        loading.value = false;
+      }
+      onMounted(load);
+      return { list, loading, go, money };
+    },
+    template: `
+      <div class="container">
+        <div class="section-title"><span class="bar"></span>我的收藏</div>
+        <div class="hint" style="margin-bottom:12px">你收藏过的商品会进入这里，并实时影响「猜你喜欢」的推荐结果。</div>
+        <div v-if="loading" class="empty">加载中…</div>
+        <el-empty v-else-if="!list.length" description="还没有收藏任何商品，去首页逛逛吧" />
+        <div v-else class="grid">
+          <product-card v-for="p in list" :key="'f' + p.id" :product="p" />
+        </div>
+      </div>`
+  };
+
   // ---------- 公告（仅管理员可发布，所有用户/游客都能看） ----------
   const Notice = {
     setup() {
@@ -1409,7 +1438,7 @@
   };
 
   // ---------- 根组件 ----------
-  const views = { home: Home, product: ProductDetail, cart: Cart, orders: Orders, sold: SoldOrders, publish: Publish, messages: Messages, profile: Profile, login: Login, notice: Notice, admin: Admin };
+  const views = { home: Home, product: ProductDetail, cart: Cart, orders: Orders, sold: SoldOrders, publish: Publish, messages: Messages, profile: Profile, favorites: Favorites, login: Login, notice: Notice, admin: Admin };
   const App = {
     setup() {
       const current = computed(() => views[route.name] || Home);
@@ -1443,6 +1472,7 @@
               <a :class="{active: route.name==='messages'}" @click="go('messages')">私信</a>
               <a :class="{active: route.name==='notice'}" @click="go('notice')">公告</a>
               <a :class="{active: route.name==='profile'}" @click="go('profile')">我的</a>
+              <a :class="{active: route.name==='favorites'}" @click="go('favorites')">收藏</a>
             </nav>
             <div class="spacer"></div>
             <template v-if="isAdmin">

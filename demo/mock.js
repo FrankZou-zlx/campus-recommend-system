@@ -172,12 +172,24 @@
   }
   function recommendForUser(uid, limit) {
     limit = limit || 8;
-    const pos = new Set(INTERACTIONS.filter(it => it.user_id === uid).map(it => it.product_id));
+    const myIts = INTERACTIONS.filter(it => it.user_id === uid);
+    const pos = new Set(myIts.map(it => it.product_id));
+    // 类目兴趣权重（高分行为：收藏/购买），让"收藏了某类就多推某类"成立
+    const catAff = {};
+    const basisSet = new Set();
+    myIts.forEach(it => {
+      if (it.score < 3) return;
+      const p = productById(it.product_id);
+      if (!p) return;
+      catAff[p.category_id] = (catAff[p.category_id] || 0) + it.score;
+      if (p.category_name) basisSet.add(p.category_name);
+    });
+    const basis = [...basisSet];
     // 冷启动：无行为 -> 返回全站热门（按行为数）
     if (!pos.size) {
       const pop = Object.keys(itemUsers).map(pid => ({ pid: Number(pid), c: itemUsers[pid].size }))
         .sort((a, b) => b.c - a.c).slice(0, limit).map(x => productById(x.pid)).filter(Boolean);
-      return pop;
+      return { list: pop, basis: [] };
     }
     // 候选物品相似度聚合（与目标用户已交互物品的加权余弦相似度之和，公式同后端）
     const cand = {};
@@ -187,17 +199,32 @@
       pos.forEach(pid => { s += cosineW(itemUserScore[pid], itemUserScore[p.id]); });
       if (s > 0) cand[p.id] = s;
     });
-    const ranked = Object.keys(cand).map(pid => ({ pid: Number(pid), s: cand[pid] }))
+    // 最终候选池 = 相似度分 + 类目兴趣加权（同类目商品必然入池并被加权）
+    const final = {};
+    Object.keys(cand).forEach(pid => { final[pid] = cand[pid]; });
+    PRODUCTS.forEach(p => {
+      if (pos.has(p.id)) return;
+      const aff = catAff[p.category_id] || 0;
+      if (aff > 0 || final[p.id] !== undefined) final[p.id] = (final[p.id] || 0) + aff * 0.4;
+    });
+    let ranked = Object.keys(final).map(pid => ({ pid: Number(pid), s: final[pid] }))
       .sort((a, b) => b.s - a.s).slice(0, limit).map(x => productById(x.pid)).filter(Boolean);
-    // 相似物品不足时，用同类目热门补齐（冷启动兜底）
+    // 不足则补同类目热门
     if (ranked.length < limit) {
-      const sameCat = PRODUCTS.filter(p => !pos.has(p.id) && !ranked.find(r => r.id === p.id) && pos.size);
-      // 取目标用户偏好类目
-      const cats = new Set([...pos].map(pid => (productById(pid) || {}).category_id));
-      sameCat.sort((a, b) => (cats.has(b.category_id) ? 1 : 0) - (cats.has(a.category_id) ? 1 : 0));
-      for (const p of sameCat) { if (ranked.length >= limit) break; ranked.push(p); }
+      const cats = new Set([...pos].map(pid => (productById(pid) || {}).category_id).filter(Boolean));
+      const fb = PRODUCTS.filter(p => !pos.has(p.id) && !ranked.find(r => r.id === p.id) && (cats.size ? cats.has(p.category_id) : true));
+      fb.sort((a, b) => ((catAff[b.category_id] || 0) - (catAff[a.category_id] || 0)) || ((itemUsers[b.id] ? itemUsers[b.id].size : 0) - (itemUsers[a.id] ? itemUsers[a.id].size : 0)));
+      ranked = ranked.concat(fb.slice(0, limit - ranked.length));
     }
-    return ranked;
+    // 附推荐理由
+    const list = ranked.map(p => {
+      let reason;
+      if (catAff[p.category_id]) reason = '因为你关注过「' + (p.category_name || '该类目') + '」类商品';
+      else if (cand[p.id] !== undefined) reason = '与你交互过的商品相似';
+      else reason = '同学都在看的同类好物';
+      return Object.assign({}, p, { reason });
+    });
+    return { list, basis };
   }
 
   // ---------- 协同过滤「数据 + 举例」（后台算法面板用，公式与后端一致） ----------
@@ -509,6 +536,12 @@
       addInteraction(u.id, Number(parts[2]), 'favorite');
       return { code: 0 };
     }
+    if (parts[0] === 'product' && parts[1] === 'favorites' && method === 'get') {
+      const u = curUser(false); if (!u) return { code: 401 };
+      const favIds = new Set(INTERACTIONS.filter(it => it.user_id === u.id && it.type === 'favorite').map(it => it.product_id));
+      const list = PRODUCTS.filter(p => p.status === 1 && favIds.has(p.id));
+      return { code: 0, data: list };
+    }
     if (parts[0] === 'product' && parts[1] === 'publish') {
       const u = curUser(false); if (!u) return { code: 401 };
       const fd = body || {};
@@ -577,8 +610,8 @@
     // === 推荐（协同过滤） ===
     if (parts[0] === 'recommend' && parts[1] === 'for-you') {
       const u = curUser(false); if (!u) return { code: 401 };
-      const data = recommendForUser(u.id, Number(params.limit) || 8);
-      return { code: 0, data };
+      const { list, basis } = recommendForUser(u.id, Number(params.limit) || 8);
+      return { code: 0, data: list, basis: basis || [] };
     }
 
     // === 购物车 ===

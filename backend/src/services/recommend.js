@@ -38,7 +38,19 @@ async function itemCF(userId, limit = 8) {
   // 目标用户交互过的商品集合
   const userItems = new Set(interactions.filter(r => r.user_id === userId).map(r => r.product_id));
 
-  // 候选得分：相似度加权
+  // 用户的「类目兴趣权重」：只看高分行为（收藏=3/加购=4/购买=5），让"收藏了数码就多推数码"成立
+  const catAff = {};
+  const basisSet = new Set();
+  for (const r of interactions) {
+    if (r.user_id !== userId) continue;
+    const p = prodMap.get(r.product_id);
+    if (!p || r.score < 3) continue;
+    catAff[p.category_id] = (catAff[p.category_id] || 0) + r.score;
+    if (p.category_name) basisSet.add(p.category_name);
+  }
+  const basis = [...basisSet]; // 前端用来显示「基于你收藏的 X」
+
+  // 候选得分：相似度加权（基于物品的协同过滤）
   const candScore = new Map();
   for (const iid of userItems) {
     if (!itemUsers[iid]) continue;
@@ -49,18 +61,29 @@ async function itemCF(userId, limit = 8) {
       if (sim > 0) candScore.set(other, (candScore.get(other) || 0) + sim);
     }
   }
-  let ranked = [...candScore.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
 
   // 商品热度统计（用于冷启动兜底排序）
   const hotCount = {};
   for (const r of interactions) if (prodMap.has(r.product_id)) hotCount[r.product_id] = (hotCount[r.product_id] || 0) + 1;
 
-  const exclude = new Set([...userItems, ...ranked]);
+  const exclude = new Set([...userItems]);
+
+  // 最终候选池 = 协同过滤相似度分 + 类目兴趣加权（同类目商品必然入池并被加权）
+  const final = new Map();
+  for (const [oid, sc] of candScore) final.set(oid, sc);
+  for (const p of products) {
+    if (exclude.has(p.id)) continue;
+    const aff = catAff[p.category_id] || 0;
+    if (aff > 0 || final.has(p.id)) final.set(p.id, (final.get(p.id) || 0) + aff * 0.4);
+  }
+
+  let ranked = [...final.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
+
+  // 不够则补同类目热门，再补全局热门
   if (ranked.length < limit) {
     const need = limit - ranked.length;
-    // 优先同类目，再按热度
     const cats = new Set([...userItems].map(id => prodMap.get(id)?.category_id).filter(Boolean));
-    let fb = products.filter(p => !exclude.has(p.id) && (cats.size ? cats.has(p.category_id) : true));
+    let fb = products.filter(p => !exclude.has(p.id) && !final.has(p.id) && (cats.size ? cats.has(p.category_id) : true));
     fb.sort((a, b) => (hotCount[b.id] || 0) - (hotCount[a.id] || 0));
     ranked = ranked.concat(fb.slice(0, need).map(p => p.id));
   }
@@ -69,10 +92,18 @@ async function itemCF(userId, limit = 8) {
   const list = ids
     .map(id => {
       const p = prodMap.get(id);
-      return p ? { id: p.id, title: p.title, price: p.price, cover: p.cover, category_id: p.category_id, category_name: p.category_name } : null;
+      if (!p) return null;
+      let reason;
+      if (catAff[p.category_id]) reason = '因为你关注过「' + (p.category_name || '该类目') + '」类商品';
+      else if (candScore.has(id)) reason = '与你交互过的商品相似';
+      else reason = '同学都在看的同类好物';
+      return {
+        id: p.id, title: p.title, price: p.price, cover: p.cover,
+        category_id: p.category_id, category_name: p.category_name, reason
+      };
     })
     .filter(Boolean);
-  return list;
+  return { list, basis };
 }
 
 const TYPE_NAME = { 1: '浏览', 2: '加购', 3: '收藏', 4: '下单', 5: '付款' };
