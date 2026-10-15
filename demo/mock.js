@@ -54,6 +54,8 @@
   const NAME_POOL = ['小琳', '阿杰', '学妹', '学长', '可乐', '团子', '阿哲', '栗子', '大壮', '糖糖', '小北', '橙子的', '阿May', '墨墨', '胖虎', '欣欣', '阿浩', '柚子', '小鹿', 'CC'];
 
   // ---------- 生成用户（120） ----------
+  // 其中若干为「AI 卖家」（seller_mode='auto'）：买家私信时会自动回复
+  const AUTO_SELLERS = [2, 3, 4, 5, 6];
   const USERS = [];
   for (let i = 1; i <= 120; i++) {
     USERS.push({
@@ -62,7 +64,8 @@
       nickname: i === 1 ? '小琳' : NAME_POOL[(i - 2) % NAME_POOL.length],
       email: i === 1 ? 'user001@campus.edu' : '',
       phone: i === 1 ? '13800000001' : '',
-      role: 'user'
+      role: 'user',
+      seller_mode: AUTO_SELLERS.indexOf(i) >= 0 ? 'auto' : 'manual'
     });
   }
   const userById = (id) => USERS.find(u => u.id === id) || null;
@@ -73,7 +76,10 @@
   Object.keys(NAMES).forEach(cid => {
     NAMES[cid].forEach((title) => {
       PID++;
-      const seller = USERS[ri(1, USERS.length - 1)];
+      // 约 1/4 的商品挂在 AI 卖家名下，保证演示时随便点一个商品都能碰到「AI 自动回复」
+      const seller = (PID % 4 === 0)
+        ? USERS[AUTO_SELLERS[(PID / 4) % AUTO_SELLERS.length] - 1]
+        : USERS[ri(1, USERS.length - 1)];
       const [lo, hi] = PRICE[cid];
       SEED_PRODUCTS.push({
         id: PID,
@@ -417,6 +423,70 @@
   function getAddr(uid) { return allAddr().filter(a => a.user_id === uid); }
   function getMessages() { return LS.get('demo_messages', []); }
   function setMessages(a) { LS.set('demo_messages', a); }
+
+  // ---------- AI 卖家自动回复（演示版内置规则引擎，与后端 services/ai-seller.js 简化一致）----------
+  // 意图规则顺序即优先级：砍价/询价优先于问候，避免「你好，能便宜点吗」被判成问候
+  const AI_INTENTS = [
+    { key: 'bargain', kw: ['便宜', '少点', '优惠', '刀', '降价', '让点', '能少', '最低', '贵'] },
+    { key: 'price', kw: ['多少钱', '价格', '什么价', '几块', '报价', '多少出'] },
+    { key: 'accessory', kw: ['配件', '发票', '保修', '包装', '说明书', '原装'] },
+    { key: 'stock', kw: ['还有吗', '还有货', '现货', '库存', '还有几个', '卖掉', '还在吗', '在了吗'] },
+    { key: 'condition', kw: ['几成新', '成色', '新旧', '磨损', '划痕', '用了多久', '破损'] },
+    { key: 'delivery', kw: ['包邮', '快递', '发货', '邮寄', '顺丰', '运费'] },
+    { key: 'location', kw: ['哪里', '在哪', '面交', '地点', '自提', '宿舍', '教学楼', '图书馆'] },
+    { key: 'thanks', kw: ['谢谢', '感谢', '多谢', '麻烦了'] },
+    { key: 'greeting', kw: ['你好', '您好', '在吗', '在么', '哈喽', 'hi', 'hello'] },
+  ];
+  const AI_REPLY_DELAY = 900;   // 模拟真人「正在输入」的延迟
+
+  function aiDetect(text) {
+    const t = String(text || '').toLowerCase();
+    for (const it of AI_INTENTS) {
+      const hit = it.kw.find((k) => t.includes(k));
+      if (hit) return it.key;
+    }
+    return 'other';
+  }
+
+  function aiCompose(intent, item) {
+    const one = (a) => a[Math.floor(Math.random() * a.length)];
+    const title = item ? item.title : '这件东西';
+    const price = item ? String(Number(item.price)) : '';
+    const stock = item ? Number(item.stock) : 0;
+    const offer = item && Number(item.price) >= 20 ? Math.max(1, Math.round(Number(item.price) * 0.95)) : null;
+    switch (intent) {
+      case 'bargain':
+        return offer
+          ? one([`可以小刀～${title} 原价 ${price}，你诚心要的话 ${offer} 元给你，自提还能再商量。`,
+                 `价格还能聊，${offer} 元怎么样？${title} 我平时用得不多。`])
+          : one([`这个 ${price} 元已经很实惠啦，真想要的话我送你点小配件～`,
+                 `${title} 就 ${price} 元，价格压得很低了，我再送你点东西吧～`]);
+      case 'price':
+        return item ? `${title} 是 ${price} 元，${stock > 1 ? `还有 ${stock} 件` : '就剩最后一件了'}。`
+                    : '你想问哪一件呀？我主页的在售商品都标了价，看中哪个我再说说细节。';
+      case 'stock':
+        if (!item) return '还有的，你想要哪件？';
+        if (stock <= 0) return '这件刚好出完了，可以看看我别的闲置～';
+        return stock === 1 ? `就剩最后一件啦，${title} 还在，要的话抓紧～`
+                           : `还有 ${stock} 件现货，${title} 随时可以出。`;
+      case 'condition':
+        return `${title} 成色挺好的，平时用得不多，有小痕迹的地方我提前跟你说，细节图可以拍给你。`;
+      case 'delivery':
+        return '校内可以直接给你送过去，要寄快递的话这件我给你包邮～';
+      case 'location':
+        return '我就在校内，宿舍、教学楼、图书馆都能约，看你哪个时间方便～';
+      case 'accessory':
+        return '原包装和配件都还在，说明书也留着，一起给你。';
+      case 'thanks':
+        return one(['不客气～有需要随时找我。', '好的，随时联系我哈。']);
+      case 'greeting':
+        return item ? `你好～${title} 还在的，有什么想了解的？价格、成色、面交都能聊。`
+                    : '你好～有什么想了解的尽管问，我这几件闲置都还在售。';
+      default:
+        return item ? `收到～${title} 还在售，${price ? `价格 ${price} 元，` : ''}有别的疑问也可以一起问我。`
+                    : '收到～你可以说下具体看中的商品，我给你详细说说。';
+    }
+  }
   function getUsers() { return LS.get('demo_users', {}); }
   seedOrders();   // 首次进入时灌入演示订单
 
@@ -529,7 +599,9 @@
     if (parts[0] === 'product' && parts[1] === 'detail') {
       const p = productById(parts[2]);
       if (!p) return { code: 1, msg: '商品不存在' };
-      return { code: 0, data: p };
+      const s = userById(p.seller_id);
+      // 附带卖家客服模式，前端据此显示「AI 自动回复」标识
+      return { code: 0, data: Object.assign({}, p, { seller_mode: s ? s.seller_mode : 'manual' }) };
     }
     if (parts[0] === 'product' && parts[1] === 'favorite') {
       const u = curUser(false); if (!u) return { code: 401 };
@@ -727,8 +799,14 @@
       msgs.forEach(m => {
         const peer = m.from_id === u.id ? m.to_id : m.from_id;
         if (!peers[peer] || m.created_at > peers[peer].last_time) {
-          const pn = (userById(peer) || {}).nickname || ('用户' + peer);
-          peers[peer] = { contact_id: peer, nickname: pn, last_msg: m.content, last_time: m.created_at };
+          const pu = userById(peer);
+          peers[peer] = {
+            contact_id: peer,
+            nickname: (pu || {}).nickname || ('用户' + peer),
+            seller_mode: pu ? (pu.seller_mode || 'manual') : 'manual',
+            last_msg: m.content,
+            last_time: m.created_at
+          };
         }
       });
       return { code: 0, data: Object.values(peers).sort((a, b) => b.last_time - a.last_time) };
@@ -736,15 +814,52 @@
     if (parts[0] === 'message' && parts[1] === 'talk') {
       const u = curUser(false); if (!u) return { code: 401 };
       const peer = Number(parts[2]);
-      const list = getMessages().filter(m => (m.from_id === u.id && m.to_id === peer) || (m.from_id === peer && m.to_id === u.id))
-        .sort((a, b) => a.created_at - b.created_at);
-      return { code: 0, data: list };
+      const list = getMessages()
+        .filter(m => (m.from_id === u.id && m.to_id === peer) || (m.from_id === peer && m.to_id === u.id))
+        .sort((a, b) => (a.created_at - b.created_at) || ((a.id || 0) - (b.id || 0)));
+      const pu = userById(peer);
+      return {
+        code: 0,
+        data: list,
+        peer: pu ? { id: pu.id, nickname: pu.nickname, avatar: pu.avatar, seller_mode: pu.seller_mode || 'manual' } : null,
+        ai_seller: !!(pu && pu.seller_mode === 'auto')
+      };
     }
     if (parts[0] === 'message' && parts[1] === 'send') {
       const u = curUser(false); if (!u) return { code: 401 };
+      const toId = Number(body.to_id);
+      const pid = Number(body.product_id) || 0;
       const msgs = getMessages();
-      msgs.push({ from_id: u.id, to_id: Number(body.to_id), content: body.content, created_at: Date.now() });
-      setMessages(msgs); return { code: 0 };
+      msgs.push({ id: msgs.length + 1, from_id: u.id, to_id: toId, content: body.content, sender_type: 0, product_id: pid, created_at: Date.now() });
+      setMessages(msgs);
+
+      const peer = userById(toId);
+      const isAuto = !!(peer && peer.seller_mode === 'auto') && u.id !== toId;
+      if (!isAuto) return { code: 0, ai_pending: false, ai_seller: false };
+
+      // AI 卖家：延迟若干毫秒后写入一条自动回复（模拟真人「正在输入」，与后端时序一致）
+      const item = pid ? productById(pid) : null;
+      const intent = aiDetect(body.content);
+      setTimeout(() => {
+        const list = getMessages();
+        list.push({
+          id: list.length + 1,
+          from_id: toId,
+          to_id: u.id,
+          content: aiCompose(intent, item),
+          sender_type: 1,
+          product_id: pid,
+          created_at: Date.now()
+        });
+        setMessages(list);
+      }, AI_REPLY_DELAY);
+
+      return { code: 0, ai_pending: true, ai_seller: true };
+    }
+    if (parts[0] === 'message' && parts[1] === 'seller-mode') {
+      const pu = userById(Number(parts[2]));
+      if (!pu) return { code: 404, msg: '用户不存在' };
+      return { code: 0, data: { id: pu.id, nickname: pu.nickname, seller_mode: pu.seller_mode || 'manual', ai_seller: pu.seller_mode === 'auto' } };
     }
 
     // === 后台（仅管理员通道 isAdmin=true 才可进入，普通用户通道拿不到数据） ===

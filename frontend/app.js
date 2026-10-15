@@ -551,7 +551,12 @@
       }
       function talk() {
         if (!requireLogin()) return;
-        go('messages', { userId: product.value.seller_id, name: product.value.seller_name || '' });
+        // 带上商品 id：AI 卖家自动回复时以此商品为上下文（价格/库存/成色）
+        go('messages', {
+          userId: product.value.seller_id,
+          name: product.value.seller_name || '',
+          productId: product.value.id
+        });
       }
       function back() { go('home'); }
       // 图片：cover 优先，其次 images 数组
@@ -586,7 +591,8 @@
           <div style="flex:1;min-width:280px">
             <h2 style="margin:0 0 8px">{{ product.title }}</h2>
             <div style="color:#f56c6c;font-size:26px;font-weight:700;margin-bottom:8px">{{ money(product.price) }}</div>
-            <p style="color:#909399">分类：{{ product.category_name }}　|　库存：{{ product.stock }}　|　卖家：{{ product.seller_name }}</p>
+            <p style="color:#909399">分类：{{ product.category_name }}　|　库存：{{ product.stock }}　|　卖家：{{ product.seller_name }}<span v-if="product.seller_mode==='auto'" class="ai-badge" style="margin-left:6px">AI</span></p>
+            <div v-if="product.seller_mode==='auto'" class="ai-tip">该卖家已开启 AI 自动回复，咨询可秒回</div>
             <p style="line-height:1.7;color:#606266">{{ product.description || '暂无描述' }}</p>
             <div class="row" style="margin-top:16px">
               <el-button type="primary" size="large" @click="addCart">加入购物车</el-button>
@@ -835,24 +841,69 @@
       const content = ref('');
       const curId = ref(0);
       const curName = ref('');
+      const curPid = ref(0);        // 当前会话关联的商品（AI 回复上下文）
+      const aiSeller = ref(false);  // 对端是否为 AI 卖家（开启自动回复）
+      const aiTyping = ref(false);  // AI 正在输入
+      const boxRef = ref(null);     // 消息区容器，用于自动滚到底
+      let aiTimer = null;
+
+      function scrollBottom() {
+        nextTick(() => {
+          const el = boxRef.value;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
       async function loadContacts() {
         if (!requireLogin()) return;
         const d = await U('get', '/message/contacts');
-        if (d.code === 0) { contacts.value = d.data; if (route.params.userId) openTalk(route.params.userId, route.params.name || ''); }
+        if (d.code === 0) {
+          contacts.value = d.data;
+          if (route.params.userId) openTalk(route.params.userId, route.params.name || '', route.params.productId);
+        }
       }
-      async function openTalk(uid, name) {
+      async function openTalk(uid, name, pid) {
         curId.value = Number(uid); curName.value = name || '';
         const d = await U('get', '/message/talk/' + uid);
-        if (d.code === 0) talks.value = d.data;
-        await nextTick();
+        if (d.code === 0) {
+          talks.value = d.data;
+          aiSeller.value = !!d.ai_seller;
+          // 商品上下文：优先路由带入（从商品页点「私信卖家」），
+          // 否则回退到本会话历史消息里最近的 product_id，刷新页面也不丢上下文
+          const withPid = (d.data || []).filter((m) => Number(m.product_id) > 0);
+          curPid.value = Number(pid) || (withPid.length ? Number(withPid[withPid.length - 1].product_id) : 0);
+        }
+        scrollBottom();
       }
       async function send() {
         if (!content.value.trim()) return;
-        const d = await U('post', '/message/send', { to_id: curId.value, content: content.value });
-        if (d.code === 0) { content.value = ''; openTalk(curId.value, curName.value); }
+        const txt = content.value;
+        content.value = '';
+        const d = await U('post', '/message/send', {
+          to_id: curId.value,
+          content: txt,
+          product_id: curPid.value
+        });
+        if (d.code !== 0) return;
+        await openTalk(curId.value, curName.value, curPid.value);
+        // 对方是 AI 卖家且未触发冷却/上限 → 进入「正在输入」并轮询取回自动回复
+        if (d.ai_pending) { aiTyping.value = true; pollAiReply(); }
+      }
+      async function pollAiReply() {
+        for (let i = 0; i < 6; i++) {
+          await new Promise((r) => { aiTimer = setTimeout(r, 1500); });
+          const d = await U('get', '/message/talk/' + curId.value);
+          if (d.code !== 0) continue;
+          const grew = d.data.length > talks.value.length;
+          talks.value = d.data;
+          scrollBottom();
+          const last = d.data[d.data.length - 1];
+          if (grew && last && Number(last.sender_type) === 1) break;  // 已拿到 AI 回复
+        }
+        aiTyping.value = false;
       }
       onMounted(loadContacts);
-      return { contacts, talks, content, curId, curName, openTalk, send, go };
+      onBeforeUnmount(() => { if (aiTimer) { clearTimeout(aiTimer); } });
+      return { contacts, talks, content, curId, curName, aiSeller, aiTyping, boxRef, openTalk, send, go };
     },
     template: `
       <div class="container">
@@ -861,14 +912,25 @@
           <el-card style="width:240px;min-height:360px">
             <div v-if="!contacts.length" class="empty">暂无会话</div>
             <div v-for="c in contacts" :key="c.contact_id" class="card" style="margin-bottom:8px;cursor:pointer" :style="curId===c.contact_id?'border-color:#f97316':''" @click="openTalk(c.contact_id, c.nickname)">
-              <div style="padding:8px 10px"><b>{{ c.nickname }}</b><div style="color:#909399;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.last_msg }}</div></div>
+              <div style="padding:8px 10px">
+                <b>{{ c.nickname }}</b><span v-if="c.seller_mode==='auto'" class="ai-badge">AI</span>
+                <div style="color:#909399;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.last_msg }}</div>
+              </div>
             </div>
           </el-card>
           <el-card style="flex:1;min-height:360px">
             <template v-if="curId">
-              <div style="height:240px;overflow:auto;background:#fff7ed;border-radius:8px;padding:10px">
+              <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div><b>{{ curName }}</b><span v-if="aiSeller" class="ai-badge">AI</span></div>
+                <div v-if="aiSeller" class="ai-tip">已开启 AI 自动回复</div>
+              </div>
+              <div ref="boxRef" style="height:240px;overflow:auto;background:#fff7ed;border-radius:8px;padding:10px">
                 <div v-for="(m,i) in talks" :key="i" style="margin:6px 0" :style="{textAlign: m.from_id===userMe?'right':'left'}">
-                  <span style="display:inline-block;padding:6px 10px;border-radius:8px" :style="{background: m.from_id===userMe?'#f97316':'#fff', color: m.from_id===userMe?'#fff':'#4a3f35'}">{{ m.content }}</span>
+                  <span v-if="Number(m.sender_type)===1" class="ai-badge">AI</span>
+                  <span class="chat-bubble" :class="{ 'ai-bubble': Number(m.sender_type)===1, 'me-bubble': m.from_id===userMe }">{{ m.content }}</span>
+                </div>
+                <div v-if="aiTyping" style="margin:6px 0;text-align:left">
+                  <span class="chat-bubble ai-bubble">{{ curName }} 正在输入…</span>
                 </div>
               </div>
               <div class="row" style="margin-top:10px">

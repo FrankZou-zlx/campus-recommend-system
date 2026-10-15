@@ -165,6 +165,19 @@ if [ -f "$DST/backend/sql/migrate-product-pinyin.js" ]; then
   rm -f /tmp/migrate-pinyin.log
 fi
 
+# 幂等迁移：AI 自动回复所需字段（user.seller_mode / message.sender_type、product_id）
+if [ -f "$DST/backend/sql/migrate-ai-seller.js" ]; then
+  c_info "执行幂等数据迁移（AI 自动回复字段）…"
+  if node "$DST/backend/sql/migrate-ai-seller.js" > /tmp/migrate-ai.log 2>&1; then
+    sed 's/^/     /' /tmp/migrate-ai.log
+    c_ok "AI 自动回复迁移完成"
+  else
+    printf '  \033[33m!\033[0m AI 自动回复迁移失败，日志：\n'
+    tail -10 /tmp/migrate-ai.log | sed 's/^/     /'
+  fi
+  rm -f /tmp/migrate-ai.log
+fi
+
 # 演示订单：空表时自动补一批。
 # 管理端「成交额 / 类目柱状图 / 近 7 日折线图」和卖家「我卖出的」都依赖订单数据，
 # 全新部署时若没有它，答辩时看板会显示 ¥0.00、图表全空。

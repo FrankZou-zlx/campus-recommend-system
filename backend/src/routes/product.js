@@ -74,7 +74,7 @@ router.get('/list', async (req, res) => {
 router.get('/detail/:id', auth, async (req, res) => {
   const id = req.params.id;
   const [p] = await query(
-    `SELECT p.*, c.name AS category_name, u.nickname AS seller_name
+    `SELECT p.*, c.name AS category_name, u.nickname AS seller_name, u.seller_mode AS seller_mode
      FROM product p LEFT JOIN category c ON p.category_id=c.id
      LEFT JOIN user u ON p.seller_id=u.id WHERE p.id=?`, [id]
   );

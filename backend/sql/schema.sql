@@ -16,6 +16,7 @@ CREATE TABLE `user` (
   `email`       VARCHAR(100) DEFAULT '',
   `phone`       VARCHAR(20)  DEFAULT '',
   `role`        TINYINT      NOT NULL DEFAULT 0 COMMENT '0=普通用户 1=卖家',
+  `seller_mode` VARCHAR(16)  NOT NULL DEFAULT 'manual' COMMENT '卖家客服模式 manual=人工 auto=AI自动回复',
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_username` (`username`)
@@ -149,10 +150,13 @@ CREATE TABLE `message` (
   `from_id`     INT UNSIGNED NOT NULL,
   `to_id`       INT UNSIGNED NOT NULL,
   `content`     VARCHAR(500) NOT NULL,
+  `sender_type` TINYINT      NOT NULL DEFAULT 0 COMMENT '0=真人 1=AI自动回复',
+  `product_id`  INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '会话关联商品(可选)，为AI回复提供上下文',
   `is_read`     TINYINT      NOT NULL DEFAULT 0,
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_to` (`to_id`)
+  KEY `idx_to` (`to_id`),
+  KEY `idx_pair_time` (`from_id`,`to_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内私信';
 
 -- 12. 公告表
