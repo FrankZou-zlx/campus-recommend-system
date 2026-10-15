@@ -8,15 +8,22 @@ const { query } = require('../src/db');
     const rows = await query(
       "SELECT id, title FROM product WHERE status = 1 AND title LIKE 'E2E验收测试商品%'"
     );
-    if (!rows.length) {
-      console.log('[cleanup] 无残留测试商品');
-      process.exit(0);
-    }
     for (const r of rows) {
       await query('UPDATE product SET status = 0 WHERE id = ?', [r.id]);
       console.log(`[cleanup] 已下架测试商品 #${r.id}《${r.title}》`);
     }
-    console.log(`[cleanup] 共清理 ${rows.length} 条`);
+    if (rows.length) console.log(`[cleanup] 共下架 ${rows.length} 条`);
+
+    // 修复拼音搜索验收时留下的「占位描述」，换成正常商品文案
+    const fix = await query(
+      "SELECT id FROM product WHERE title = '保湿喷雾便携装' AND description = '测试拼音'"
+    );
+    for (const r of fix) {
+      await query('UPDATE product SET description = ? WHERE id = ?',
+        ['外出补水神器，小巧便携，随时喷一喷，全新未拆封，需要的同学私聊～', r.id]);
+      console.log(`[cleanup] 已修复测试商品 #${r.id} 的商品描述`);
+    }
+    if (!rows.length && !fix.length) console.log('[cleanup] 无残留测试数据');
     process.exit(0);
   } catch (e) {
     console.error('[cleanup] 失败:', e.message);
