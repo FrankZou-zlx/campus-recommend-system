@@ -1,9 +1,0 @@
-{
-  "buildCommand": null,
-  "outputDirectory": ".",
-  "framework": null,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://campus-mall-backend.onrender.com/api/$1" },
-    { "source": "/uploads/(.*)", "destination": "https://campus-mall-backend.onrender.com/uploads/$1" }
-  ]
-}
