@@ -178,6 +178,12 @@ if [ -f "$DST/backend/sql/migrate-ai-seller.js" ]; then
   rm -f /tmp/migrate-ai.log
 fi
 
+# 幂等清理：下架自动验收脚本残留的测试商品（标题以「E2E验收测试商品」开头）
+if [ -f "$DST/backend/sql/migrate-cleanup-tests.js" ]; then
+  node "$DST/backend/sql/migrate-cleanup-tests.js" > /tmp/migrate-clean.log 2>&1 && sed 's/^/     /' /tmp/migrate-clean.log
+  rm -f /tmp/migrate-clean.log
+fi
+
 # 演示订单：空表时自动补一批。
 # 管理端「成交额 / 类目柱状图 / 近 7 日折线图」和卖家「我卖出的」都依赖订单数据，
 # 全新部署时若没有它，答辩时看板会显示 ¥0.00、图表全空。
