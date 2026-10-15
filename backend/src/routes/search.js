@@ -25,6 +25,16 @@ router.get('/mine', auth, async (req, res) => {
   res.json({ code: 0, data: rows.map(r => r.keyword) });
 });
 
+// 清空我的搜索历史（只删本人记录，不影响全站热搜）
+router.delete('/mine', auth, async (req, res) => {
+  try {
+    await query('DELETE FROM search_log WHERE user_id=?', [req.user.id]);
+    res.json({ code: 0 });
+  } catch (e) {
+    res.status(500).json({ code: 500, msg: '清空失败: ' + e.message });
+  }
+});
+
 // 全站热搜词（公开）
 router.get('/hot', async (req, res) => {
   const rows = await query(
