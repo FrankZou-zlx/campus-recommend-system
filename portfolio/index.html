@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>简换校园二手交易平台 · 毕业设计作品集</title>
+<meta name="description" content="基于协同过滤算法的校园二手交易平台：Vue3 + Node/Express + MySQL 全栈实现，含生产级运维体系建设（CI/CD、监控告警、容器编排、备份容灾）。" />
+<link rel="stylesheet" href="./assets/css/style.css" />
+</head>
+<body>
+
+<!-- ============ 顶部导航 ============ -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">简换</span>
+      <span class="brand-sub">校园二手交易平台</span>
+    </a>
+    <button class="menu-btn" id="menuBtn" aria-label="打开导航">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="nav-links" id="navLinks">
+      <a href="#background">背景与问题</a>
+      <a href="#features">功能亮点</a>
+      <a href="#structure">功能结构</a>
+      <a href="#tech">技术选型</a>
+      <a href="#architecture">系统架构</a>
+      <a href="#algorithm">推荐算法</a>
+      <a href="#hardpoints">难点攻克</a>
+      <a href="#ops">运维体系</a>
+      <a href="#results">成果数据</a>
+      <a href="#contact">联系与开始</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ Hero ============ -->
+<section class="hero" id="top">
+  <div class="wrap hero-inner">
+
+    <!-- 主区：主张与行动 -->
+    <div class="hero-text">
+      <p class="eyebrow">本科毕业设计 · 计算机科学与技术</p>
+
+      <h1 class="hero-title">
+        简换 <span class="t-sep">·</span> 校园二手交易平台
+        <small>的设计与实现</small>
+      </h1>
+
+      <p class="lead">
+        首页「猜你喜欢」由<strong>自实现的 Item-based 协同过滤</strong>算出，
+        每条推荐都<strong>说得清为什么推给你</strong>；配套从部署到监控告警的完整运维闭环。
+      </p>
+
+      <ul class="hero-pills">
+        <li>Item-based 协同过滤</li>
+        <li>可解释推荐</li>
+        <li>零成本自建</li>
+      </ul>
+
+      <div class="hero-actions">
+        <!-- 演示地址若更换，只改下面这一个 href -->
+        <a class="btn primary" href="https://4afe17af5106452284b34a76cabb3544.app.workbuddy.host" target="_blank" rel="noopener">
+          在线演示<span class="ext" aria-hidden="true">↗</span>
+        </a>
+        <a class="btn ghost" href="https://gitee.com/zoulinxuan/campus-recommend-system" target="_blank" rel="noopener">
+          源码 · Gitee<span class="ext" aria-hidden="true">↗</span>
+        </a>
+        <a class="btn ghost" href="https://github.com/FrankZou-zlx/campus-recommend-system" target="_blank" rel="noopener">
+          源码 · GitHub<span class="ext" aria-hidden="true">↗</span>
+        </a>
+        <a class="btn-text" href="#hardpoints">先看踩过的坑</a>
+      </div>
+
+      <ul class="hero-facts">
+        <li><b>13</b><span>数据表</span></li>
+        <li><b>53</b><span>接口端点</span></li>
+        <li><b>12</b><span>前端视图</span></li>
+        <li><b>0</b><span>已知漏洞</span></li>
+      </ul>
+    </div>
+
+    <!-- 副区：视觉主体（推荐位示意） -->
+    <figure class="hero-visual">
+      <div class="mock">
+        <div class="mock-bar">
+          <span></span><span></span><span></span>
+          <em>校园二手优选 / 首页</em>
+        </div>
+        <div class="mock-body">
+          <div class="mock-head">
+            <strong>猜你喜欢</strong>
+            <i>协同过滤 · 越用越准</i>
+          </div>
+
+          <article class="rec-main">
+            <div class="rec-thumb">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="4" y="3" width="16" height="18" rx="2" />
+                <line x1="11" y1="18" x2="13" y2="18" />
+              </svg>
+            </div>
+            <div class="rec-meta">
+              <h3>iPad 9 代 · 64G 深空灰</h3>
+              <p class="rec-price">¥ 1,180</p>
+              <p class="rec-reason">因为你收藏过「数码」类商品</p>
+            </div>
+          </article>
+
+          <div class="rec-mini">
+            <span>与你交互过的商品相似</span>
+            <b>机械键盘 · 87 键热插拔</b>
+          </div>
+          <div class="rec-mini">
+            <span>同学都在看的同类好物</span>
+            <b>护眼台灯 · 三档色温</b>
+          </div>
+        </div>
+      </div>
+      <figcaption>首页推荐位示意 · 三条推荐来自三条不同规则</figcaption>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ============ 01 背景与问题 ============ -->
+<section class="sec" id="background">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <h2>项目背景与要解决的问题</h2>
+      <p>校园二手交易长期依赖群聊与表白墙，信息随刷随没、买卖双方匹配效率低。</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-ico">📢</div>
+        <h3>信息分散、随刷即逝</h3>
+        <p>QQ 群/朋友圈发布的商品几分钟就被新消息冲走，想买时根本搜不到，卖家反复重发。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🔍</div>
+        <h3>商品越多越找不到</h3>
+        <p>信息过载：用户不知道自己想要什么，只能靠翻页大海捞针，长尾商品永远无人问津。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🤝</div>
+        <h3>沟通成本高、信任弱</h3>
+        <p>卖家不在线就无人应答，议价询问得不到回应，成交率被"回复慢"拖垮。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🛡️</div>
+        <h3>内容无人审核</h3>
+        <p>开放发布必然带来违规信息，缺乏审核机制的校园平台很快就会被垃圾内容淹没。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">📦</div>
+        <h3>交易状态全靠口头</h3>
+        <p>付款、发货、收货没有状态记录，一旦纠纷无据可查。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🧭</div>
+        <h3>新用户冷启动</h3>
+        <p>刚注册没有任何行为数据，推荐系统无米下锅，首页只能是空荡荡的默认列表。</p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <b>设计目标：</b>做一个<strong>轻量但完整</strong>的校园交易平台——既能跑通"浏览→收藏→加购→下单→支付→发货→收货→私信"的真实闭环，
+      又能用<strong>可解释的推荐算法</strong>把"人找货"变成"货找人"，并且全程零成本（不调用任何付费 API/云服务）。
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 核心功能与亮点 ============ -->
+<section class="sec alt" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <h2>核心功能与亮点</h2>
+      <p>11 个前端视图 + 11 个业务模块，覆盖完整交易闭环与后台治理。</p>
+    </div>
+
+    <div class="flow">
+      <div class="flow-step"><span>1</span>注册登录</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span>2</span>浏览/搜索</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span>3</span>收藏加购</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span>4</span>下单支付</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span>5</span>发货收货</div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step"><span>6</span>评价私信</div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card hl">
+        <div class="badge">亮点 1</div>
+        <h3>可解释的推荐</h3>
+        <p>每条推荐带 <code>reason</code>（"因为你收藏过…"）与 <code>basis</code>（类目依据）。不是黑盒输出，用户一眼看懂推荐逻辑，信任感显著提升。</p>
+      </div>
+      <div class="card hl">
+        <div class="badge">亮点 2</div>
+        <h3>AI 卖家自动回复</h3>
+        <p>规则引擎识别九类意图（砍价/询价/配件/库存/成色/配送/面交/致谢/问候），带冷却与每日上限；可选接 LLM。买家不必干等卖家上线。</p>
+      </div>
+      <div class="card hl">
+        <div class="badge">亮点 3</div>
+        <h3>服务端强制内容审核</h3>
+        <p>敏感词过滤在服务端强制接入发布/编辑/私信/昵称，词库与代码分离可运营维护；前端过滤只是体验层，服务端才是真关卡。</p>
+      </div>
+      <div class="card">
+        <h3>完整订单状态机</h3>
+        <p>5 态流转：待付款 → 已付款 → 已发货 → 已完成，取消为旁路；后端校验合法性，杜绝越级操作。</p>
+      </div>
+      <div class="card">
+        <h3>拼音搜索 + 搜索历史</h3>
+        <p>输入 <code>sj</code> 也能命中"手机"；记录个人搜索历史与全站热搜，支持一键清空。</p>
+      </div>
+      <div class="card">
+        <h3>买卖双视角</h3>
+        <p>买家看订单，卖家看"我卖出的"；私信按会话聚合，未读自动标记已读。</p>
+      </div>
+      <div class="card">
+        <h3>管理员独立身份</h3>
+        <p>后台独立登录体系与路由守卫，可管用户、商品、公告，并查看协同过滤洞察面板。</p>
+      </div>
+      <div class="card">
+        <h3>免构建前端</h3>
+        <p>Vue3 + Element Plus 本地 vendor 引入，无需 npm build，Nginx 直接托管，部署包仅 614 KB。</p>
+      </div>
+      <div class="card">
+        <h3>零成本约束</h3>
+        <p>算法自实现、无付费 API、无云服务账单，全部跑在自建 RHEL 虚拟机上。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 功能结构 ============ -->
+<section class="sec alt" id="structure">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <h2>系统功能结构</h2>
+      <p>按角色拆成用户端与管理端两棵树，共用同一套业务与数据层。三张图为项目文档中的正式插图，点击可看原图。</p>
+    </div>
+
+    <figure class="fig">
+      <figcaption class="fig-head"><b>图 3-1　系统总体功能结构</b><span>三大板块 · 十一个一级模块</span></figcaption>
+      <a href="assets/fig1.png" target="_blank" rel="noopener">
+        <img src="assets/fig1.png" alt="系统总体功能结构图" loading="lazy" />
+      </a>
+    </figure>
+
+    <figure class="fig">
+      <figcaption class="fig-head"><b>图 3-2　用户端功能结构</b><span>交易闭环 · 推荐 · 私信</span></figcaption>
+      <a href="assets/fig2.png" target="_blank" rel="noopener">
+        <img src="assets/fig2.png" alt="用户端功能结构图" loading="lazy" />
+      </a>
+    </figure>
+
+    <figure class="fig">
+      <figcaption class="fig-head"><b>图 3-3　管理端功能结构</b><span>运营看板与内容治理</span></figcaption>
+      <a href="assets/fig3.png" target="_blank" rel="noopener">
+        <img src="assets/fig3.png" alt="管理端功能结构图" loading="lazy" />
+      </a>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ 04 技术选型 ============ -->
+<section class="sec" id="tech">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <h2>技术选型与理由</h2>
+      <p>每一项都写明"为什么选它、放弃了什么"，而不是罗列名词。</p>
+    </div>
+
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr><th>层面</th><th>选型</th><th>为什么选它</th><th>权衡 / 代价</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>前端框架</td><td><b>Vue3</b>（免构建）</td>
+            <td>渐进式、模板语法直观；免构建方案让部署包极小、无需 Node 构建环境，Nginx 直接托管</td>
+            <td>放弃 SFC 与构建期优化，大型项目不适用</td>
+          </tr>
+          <tr>
+            <td>UI 组件</td><td><b>Element Plus</b></td>
+            <td>组件齐全（表单/表格/对话框），中文文档完善，桌面端后台场景契合</td>
+            <td>包体较大，需要本地 vendor 化</td>
+          </tr>
+          <tr>
+            <td>前端路由</td><td><b>自实现 hash 路由</b></td>
+            <td>免构建环境下无 vue-router；hash 路由无需服务端 rewrite 配合，刷新不 404</td>
+            <td>需自行处理视图切换与守卫</td>
+          </tr>
+          <tr>
+            <td>运行时</td><td><b>Node.js</b></td>
+            <td>前后端同语言，JSON 处理天然契合；与 Vue 生态一致，学习成本集中</td>
+            <td>单线程 CPU 密集场景受限</td>
+          </tr>
+          <tr>
+            <td>Web 框架</td><td><b>Express 4</b></td>
+            <td>中间件模型清晰、生态成熟、路由组织灵活，适合 RESTful API 服务</td>
+            <td>需自行组织分层，无强约束</td>
+          </tr>
+          <tr>
+            <td>数据库</td><td><b>MySQL 8</b></td>
+            <td>关系模型天然适配订单/商品/用户这类强关联数据；事务保证订单一致性；window function 便于统计</td>
+            <td>需手写迁移脚本与索引优化</td>
+          </tr>
+          <tr>
+            <td>认证</td><td><b>JWT + bcrypt</b></td>
+            <td>无状态、易横向扩展；密码 bcrypt 加盐哈希存储</td>
+            <td>JWT 不可主动撤销，改进方向为 refresh token</td>
+          </tr>
+          <tr>
+            <td>推荐算法</td><td><b>自实现 Item-based CF</b></td>
+            <td>零成本约束下不调用付费推荐 API；物品相似度稳定可离线计算，适配"物品数 &lt;&lt; 用户数"的校园场景</td>
+            <td>物品两两计算复杂度 O(n²·m)，规模扩大需剪枝/LSH</td>
+          </tr>
+          <tr>
+            <td>监控</td><td><b>prom-client + Prometheus 规则</b></td>
+            <td>标准生态、PromQL 表达力强，可平滑迁移到真实 Prometheus/Alertmanager</td>
+            <td>目标机无 root 装不了 Prometheus，故补了用户态守护进程等效实现</td>
+          </tr>
+          <tr>
+            <td>部署</td><td><b>Nginx + systemd</b></td>
+            <td>Nginx 反代/静态托管/分级缓存一体；systemd 提供服务自愈与资源限制</td>
+            <td>单机无高可用，需人工介入恢复</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 系统架构 ============ -->
+<section class="sec alt" id="architecture">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <h2>系统架构与请求链路</h2>
+      <p>前后端分离 + 反向代理分层，运维组件旁路接入，不侵入业务代码。</p>
+    </div>
+
+    <!-- 架构图（内联 SVG，light 主题） -->
+    <div class="arch">
+      <svg viewBox="0 0 920 400" role="img" aria-label="系统架构图">
+        <defs>
+          <marker id="ar" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#94a3b8" />
+          </marker>
+        </defs>
+        <rect x="0" y="0" width="920" height="400" fill="#ffffff" rx="12" />
+
+        <!-- 客户端 -->
+        <rect x="24" y="150" width="120" height="80" rx="10" fill="#fff7ed" stroke="#f97316" stroke-width="2"/>
+        <text x="84" y="185" text-anchor="middle" font-size="14" font-weight="700" fill="#7c2d12">浏览器</text>
+        <text x="84" y="206" text-anchor="middle" font-size="11" fill="#9a3412">Vue3 SPA</text>
+
+        <!-- Nginx -->
+        <rect x="184" y="150" width="130" height="80" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="2"/>
+        <text x="249" y="180" text-anchor="middle" font-size="14" font-weight="700" fill="#1e3a8a">Nginx</text>
+        <text x="249" y="200" text-anchor="middle" font-size="11" fill="#1e40af">静态托管 + 反代</text>
+        <text x="249" y="217" text-anchor="middle" font-size="10" fill="#60a5fa">分级缓存 · gzip</text>
+
+        <!-- Express -->
+        <rect x="354" y="120" width="180" height="140" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+        <text x="444" y="150" text-anchor="middle" font-size="14" font-weight="700" fill="#14532d">Express API</text>
+        <text x="444" y="172" text-anchor="middle" font-size="11" fill="#166534">11 模块 / 53 端点</text>
+        <text x="444" y="192" text-anchor="middle" font-size="10" fill="#4ade80">JWT 鉴权</text>
+        <text x="444" y="209" text-anchor="middle" font-size="10" fill="#4ade80">敏感词过滤</text>
+        <text x="444" y="226" text-anchor="middle" font-size="10" fill="#4ade80">prom-client 埋点</text>
+        <text x="444" y="243" text-anchor="middle" font-size="10" fill="#4ade80">订单状态机校验</text>
+
+        <!-- 算法 -->
+        <rect x="354" y="290" width="180" height="70" rx="10" fill="#fdf4ff" stroke="#a21caf" stroke-width="2"/>
+        <text x="444" y="316" text-anchor="middle" font-size="13" font-weight="700" fill="#581c87">推荐引擎</text>
+        <text x="444" y="335" text-anchor="middle" font-size="10" fill="#7e22ce">Item-based CF + 冷启动</text>
+        <text x="444" y="350" text-anchor="middle" font-size="10" fill="#7e22ce">可解释 reason / basis</text>
+
+        <!-- MySQL -->
+        <rect x="574" y="150" width="120" height="80" rx="10" fill="#fefce8" stroke="#ca8a04" stroke-width="2"/>
+        <text x="634" y="185" text-anchor="middle" font-size="14" font-weight="700" fill="#713f12">MySQL 8</text>
+        <text x="634" y="206" text-anchor="middle" font-size="11" fill="#854d0e">13 张表</text>
+
+        <!-- 运维旁路 -->
+        <rect x="724" y="60" width="172" height="290" rx="10" fill="#f8fafc" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6 4"/>
+        <text x="810" y="86" text-anchor="middle" font-size="13" font-weight="700" fill="#334155">运维旁路（不入业务）</text>
+        <text x="810" y="112" text-anchor="middle" font-size="11" fill="#475569">Git Hook → CI/CD</text>
+        <text x="810" y="136" text-anchor="middle" font-size="11" fill="#475569">systemd 自愈</text>
+        <text x="810" y="160" text-anchor="middle" font-size="11" fill="#475569">监控埋点 /metrics</text>
+        <text x="810" y="184" text-anchor="middle" font-size="11" fill="#475569">告警守护 + 通知</text>
+        <text x="810" y="208" text-anchor="middle" font-size="11" fill="#475569">mysqldump 无锁热备</text>
+        <text x="810" y="232" text-anchor="middle" font-size="11" fill="#475569">Docker Compose 编排</text>
+        <text x="810" y="256" text-anchor="middle" font-size="11" fill="#475569">ab 压测基线</text>
+        <text x="810" y="280" text-anchor="middle" font-size="11" fill="#475569">28 项部署自检</text>
+        <text x="810" y="312" text-anchor="middle" font-size="10" fill="#94a3b8">全部旁路接入</text>
+        <text x="810" y="328" text-anchor="middle" font-size="10" fill="#94a3b8">不侵入业务代码</text>
+
+        <!-- 连线 -->
+        <line x1="144" y1="190" x2="184" y2="190" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="314" y1="190" x2="354" y2="190" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="534" y1="190" x2="574" y2="190" stroke="#94a3b8" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="444" y1="260" x2="444" y2="290" stroke="#a21caf" stroke-width="2" marker-end="url(#ar)"/>
+        <line x1="444" y1="325" x2="574" y2="200" stroke="#a21caf" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+        <line x1="634" y1="230" x2="724" y2="150" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3"/>
+      </svg>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>请求链路</h3>
+        <ol class="steps">
+          <li>浏览器 hash 路由切换视图，Axios 请求 <code>/api/*</code></li>
+          <li>Nginx <code>^~ /api/</code> 前缀匹配反代到 3001（避免被静态规则截走）</li>
+          <li>Express 中间件：JWT 鉴权 → 敏感词过滤 → 业务路由</li>
+          <li>prom-client 记录指标，响应返回 JSON</li>
+          <li>推荐类请求额外走推荐引擎，返回带 reason 的结果</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h3>部署拓扑</h3>
+        <ol class="steps">
+          <li>物理机：RHEL 9.3 虚拟机（NAT 内网）</li>
+          <li>Nginx 80 端口托管静态资源 + 反代 API + <code>/uploads/</code></li>
+          <li>后端由 systemd 托管，<code>Restart=always</code> 自愈</li>
+          <li>MySQL 本地实例，每日无锁热备并保留 7 天</li>
+          <li>代码推送经 Git Hook 自动触发部署脚本</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 推荐算法 ============ -->
+<section class="sec" id="algorithm">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <h2>推荐算法：可解释的协同过滤</h2>
+      <p>从行为数据到推荐理由，五步闭环——这是本项目与普通"管理系统"的分水岭。</p>
+    </div>
+
+    <div class="algo-flow">
+      <div class="algo-box">
+        <div class="algo-no">Step 1</div>
+        <h4>构建兴趣矩阵</h4>
+        <p>用户 × 物品矩阵，行为加权：浏览 1 / 收藏 3 / 加购 4 / 购买 5</p>
+      </div>
+      <div class="algo-arrow">→</div>
+      <div class="algo-box">
+        <div class="algo-no">Step 2</div>
+        <h4>物品相似度</h4>
+        <p>加权余弦相似度：对评分绝对值不敏感，只比较偏好方向</p>
+      </div>
+      <div class="algo-arrow">→</div>
+      <div class="algo-box">
+        <div class="algo-no">Step 3</div>
+        <h4>候选打分</h4>
+        <p>历史物品加权向量 × 相似度矩阵，按商品去重累加</p>
+      </div>
+      <div class="algo-arrow">→</div>
+      <div class="algo-box">
+        <div class="algo-no">Step 4</div>
+        <h4>冷启动兜底</h4>
+        <p>无行为数据 → 同类目热门（按加权分排序）填充首页</p>
+      </div>
+      <div class="algo-arrow">→</div>
+      <div class="algo-box accent-box">
+        <div class="algo-no">Step 5</div>
+        <h4>可解释输出</h4>
+        <p>返回 <code>reason</code> + <code>basis</code>（类目），前端直接展示推荐理由</p>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>为什么选 Item-based 而非 User-based</h3>
+        <ul class="ticks">
+          <li>物品相似度远比用户兴趣稳定，可离线预计算</li>
+          <li>校园场景"物品数 &lt;&lt; 用户数"，物品侧计算量更可控</li>
+          <li>新用户只要有一次行为就能立刻得到推荐，缓解冷启动</li>
+          <li>便于生成可解释理由（"和你收藏过的 X 相似"）</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>已知边界与演进方向</h3>
+        <ul class="ticks warn">
+          <li>复杂度 O(n²·m)：规模扩大后需共现阈值剪枝 / 分桶 / LSH</li>
+          <li>数据稀疏：更大数据量可引入矩阵分解（SVD）或内容特征混合</li>
+          <li>行为权重为经验值：可通过 A/B 测试或回归学习进一步优化</li>
+          <li>冷启动仅到"同类目热门"粒度，未引入用户属性画像</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 难点攻克 ============ -->
+<section class="sec alt" id="hardpoints">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <h2>关键实现难点与解决方案</h2>
+      <p>全部来自真实排查记录——每一个都有现象、根因、解法与收获。</p>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-tag">前端</div>
+        <h3>模板属性结尾引号丢失 → 整页白屏</h3>
+        <p class="tl-q"><b>现象：</b>页面全白但无报错线索；<code>node --check</code> 查不出（那只是 JS 语法检查）。</p>
+        <p class="tl-a"><b>根因与解法：</b>Vue 模板字符串里属性结尾少一个引号，编译期报 <code>Attribute name cannot contain U+0022</code>。<b>解法：</b>写专用模板校验脚本，改完必跑；批量替换只用最小锚点，拒绝大范围正则。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">监控</div>
+        <h3>错误率算错：累加值直接相除</h3>
+        <p class="tl-q"><b>现象：</b>5xx 占比长期偏低，服务真的挂了也告警不出来。</p>
+        <p class="tl-a"><b>根因与解法：</b><code>http_requests_total</code> 是累加计数器，直接相除等于统计"开服以来的总量"。<b>解法：</b>改为窗口内<b>增量</b>计算，才反映当前健康度。</p>
+        <p class="tl-learn">收获：指标语义想错，整套监控都是白搭。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">通知</div>
+        <h3>自建 SMTP 测试全过，真实邮箱 503 拒绝</h3>
+        <p class="tl-q"><b>现象：</b>本地假 SMTP 服务器测试一切正常，接真实邮箱报 <code>503 Send command HELO/EHLO first</code>。</p>
+        <p class="tl-a"><b>根因与解法：</b>465 隐式 SSL 分支读完欢迎语就直接 AUTH，漏发 <code>EHLO</code>；假服务器对任何命令都回 250，把协议顺序错误掩盖了。<b>解法：</b>465 分支补发 EHLO，并重跑真实投递验证。</p>
+        <p class="tl-learn">收获：假环境测通 ≠ 线上能跑，验证必须贴近真实。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">安全</div>
+        <h3>npm 说"up to date"，磁盘上却还是漏洞版本</h3>
+        <p class="tl-q"><b>现象：</b><code>npm install --save-exact</code> 改了声明，<code>npm audit</code> 报 0 漏洞，但实际运行仍是旧版。</p>
+        <p class="tl-a"><b>根因与解法：</b>锁文件解析树没刷新，npm 比对后判定"已满足"跳过安装。<b>解法：</b>删除 <code>node_modules</code> 与 <code>package-lock.json</code> 全新安装，才真正落盘补丁版本。</p>
+        <p class="tl-learn">收获：工具说没问题，也要自己验证到磁盘层面。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">部署</div>
+        <h3>改了前端，浏览器永远加载旧文件</h3>
+        <p class="tl-q"><b>现象：</b>发布新版本后用户端功能异常，清理缓存才正常。</p>
+        <p class="tl-a"><b>根因与解法：</b>Nginx 静态强缓存 + HTML 不带版本号。<b>解法：</b>分级缓存——图片/字体 7 天、JS/CSS <code>expires -1</code>、入口 HTML <code>no-store</code>；强缓存资源 URL 必须带 <code>?v=</code>。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">数据</div>
+        <h3>Node + mysql2 判空陷阱导致接口恒失败</h3>
+        <p class="tl-q"><b>现象：</b><code>/order/ship</code> 永远拒绝发货，逻辑看着没问题。</p>
+        <p class="tl-a"><b>根因与解法：</b>把解构出来的<b>单行对象</b>当数组取了 <code>.length</code>（恒为 undefined → 判空为真）。<b>解法：</b>行对象用 <code>if (!row)</code>，结果集才用 <code>.length</code>。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">网络</div>
+        <h3>站点部署成功，国内却一个都打不开</h3>
+        <p class="tl-q"><b>现象：</b>Cloudflare 显示部署成功，本地 curl 返回 HTTP 000。</p>
+        <p class="tl-a"><b>根因与解法：</b><code>nslookup</code> 解析出假 IP（Twitter/Facebook 网段）——<code>*.workers.dev</code> 遭 DNS 污染。<b>解法：</b>改走 legacy Pages 流程得到 <code>*.pages.dev</code>（国内可达），或改用国内托管。</p>
+        <p class="tl-learn">收获：交付给国内用户的地址，必须先自己实测可达性。</p>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-tag">运维</div>
+        <h3>部署脚本差点把源码目录删空</h3>
+        <p class="tl-q"><b>现象：</b>在部署目录内执行更新脚本，源码先被删、拷贝又失败，服务 500。</p>
+        <p class="tl-a"><b>根因与解法：</b>源目录与目标目录相同时的"自杀式"执行。<b>解法：</b>脚本内加 <code>SRC==DST</code> 护栏直接报错退出，并规定必须在源码目录执行。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 运维体系 ============ -->
+<section class="sec" id="ops">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <h2>运维体系建设（求职者可直接对标 JD）</h2>
+      <p>不只是一个能跑的网站——围绕它搭了一整套工程化流程。</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-ico">🔁</div>
+        <h3>CI/CD</h3>
+        <p>Git <code>post-receive</code> 钩子：分支过滤 → <code>bash -n</code> 语法门禁 → 自动检出 → 幂等迁移 → 重载 Nginx → 重启服务。sudoers 仅放行单个脚本并 <code>visudo -c</code> 校验。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">📊</div>
+        <h3>监控告警</h3>
+        <p>prom-client 埋点（路由归一化防标签基数爆炸）→ 4 条 PromQL 规则 → 用户态守护进程（pending/firing/resolved 状态机）→ webhook/SMTP 通知 + 冷却降噪。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🐳</div>
+        <h3>容器编排</h3>
+        <p>Docker Compose 三服务 + <code>depends_on: service_healthy</code> 健康门禁；Dockerfile 分层缓存、非 root、HEALTHCHECK。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">💾</div>
+        <h3>备份容灾</h3>
+        <p><code>mysqldump --single-transaction</code> 无锁热备 + gzip + 7 天轮转；systemd <code>Restart=always</code> 3 秒拉起、<code>StartLimitBurst</code> 抑重启风暴。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">⚡</div>
+        <h3>性能压测</h3>
+        <p>自研零依赖压测脚本（<code>deploy/scripts/bench.js</code>）三档并发（10/50/100）× 4 个公开接口，累计 <b>80000</b> 次请求零错误；峰值吞吐 2094 req/s、P95 延迟 67.7 ms，形成可复现性能基线。</p>
+      </div>
+      <div class="card">
+        <div class="card-ico">🔒</div>
+        <h3>安全加固</h3>
+        <p>依赖 CVE 治理 4→0（主版本不动）；不可登录运行用户、env 640 权限、最小 sudo 授权；敏感词服务端强制过滤。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 成果数据 ============ -->
+<section class="sec alt" id="results">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">09</span>
+      <h2>可量化成果</h2>
+      <p>全部经过实际验证，非估算。</p>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>13</b><span>数据库表</span></div>
+      <div class="stat"><b>53</b><span>接口端点</span></div>
+      <div class="stat"><b>12</b><span>前端视图</span></div>
+      <div class="stat"><b>28</b><span>部署自检项</span></div>
+      <div class="stat"><b>80000</b><span>压测请求数</span></div>
+      <div class="stat"><b>0</b><span>已知安全漏洞</span></div>
+      <div class="stat"><b>4</b><span>Prometheus 告警规则</span></div>
+      <div class="stat"><b>5</b><span>订单状态</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 10 联系与快速开始 ============ -->
+<section class="sec" id="contact">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="sec-no">10</span>
+      <h2>联系与快速开始</h2>
+      <p>想复现、想验证、想深聊运维部分，都可以直接开始——不需要先联系我。</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-ico">🚀</div>
+        <h3>30 秒看到系统</h3>
+        <p>打开在线演示，进首页点「猜你喜欢」，每条推荐都带推荐理由与依据类目；再进「后台」看运营看板。全流程无需安装。</p>
+        <p style="margin-top:10px"><a class="btn-text" href="https://4afe17af5106452284b34a76cabb3544.app.workbuddy.host" target="_blank" rel="noopener">打开在线演示 ↗</a></p>
+      </div>
+
+      <div class="card">
+        <div class="card-ico">📦</div>
+        <h3>本地跑起来</h3>
+        <p>免构建前端 + Express + MySQL 8，三服务一条命令拉起；<code>deploy/scripts/install-rhel.sh</code> 可在 RHEL 9 上完成 9 步幂等安装。</p>
+        <p style="margin-top:10px"><a class="btn-text" href="https://gitee.com/zoulinxuan/campus-recommend-system" target="_blank" rel="noopener">Gitee 源码 ↗</a> <a class="btn-text" href="https://github.com/FrankZou-zlx/campus-recommend-system" target="_blank" rel="noopener">GitHub 镜像 ↗</a></p>
+      </div>
+
+      <div class="card hl">
+        <div class="card-ico">💬</div>
+        <h3>联系我</h3>
+        <p><b>邹琳暄</b>　大连科技学院　计算机科学与技术（2027 届）</p>
+        <p style="margin-bottom:2px">邮箱 <a href="mailto:2738566164@qq.com">2738566164@qq.com</a></p>
+        <p style="margin-bottom:0">手机 <a href="tel:13035669103">13035669103</a></p>
+      </div>
+    </div>
+
+    <div class="note-strip">
+      <b>运维部分想看哪一块？</b>
+      仓库里 <code>docs/RUNBOOK.md</code> 是日常运维手册，<code>docs/incident/</code> 是 5 份真实故障复盘（现象→根因→修复→预防），<code>docs/ops/healthcheck-20261030.txt</code> 是真机巡检实录，<code>ops/monitor/</code> 是零依赖指标采集 + 告警状态机 + 邮件通知。证书：RHCE / RHCSA。
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <div class="brand-mark">简换</div>
+      <p class="footer-sub">校园二手交易平台 · 毕业设计作品集</p>
+    </div>
+    <div class="footer-contact">
+      <p>邹琳暄 · 大连科技学院 · 计算机科学与技术</p>
+      <p><a href="mailto:2738566164@qq.com">2738566164@qq.com</a>　<a href="tel:13035669103">13035669103</a></p>
+      <p class="footer-demo">
+        演示账号 <code>user001 / 123456</code> · 管理员 <code>admin / admin123</code>
+      </p>
+      <p class="footer-note">本站为纯静态页面，可直接托管于任意静态托管平台</p>
+    </div>
+  </div>
+</footer>
+
+<script src="./assets/js/main.js"></script>
+</body>
+</html>
