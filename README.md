@@ -127,8 +127,17 @@ sudo bash deploy/scripts/setup-git.sh         # 服务器上执行一次
 | --- | --- | --- |
 | 运维手册 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | 常用命令、发布与回滚、备份恢复、告警处置对照表、常见故障速查、值班交接清单 |
 | 故障复盘 | [`docs/incident/`](docs/incident/) | 5 起真实故障的现象、排查过程、根因、修复与预防 |
-| 一键巡检 | `deploy/scripts/healthcheck.sh` | 检查磁盘/内存/负载/服务/Nginx/数据库/健康端点/上传目录/备份新鲜度，输出 PASS/WARN/FAIL，可挂 cron |
+| 一键巡检 | [`deploy/scripts/healthcheck.sh`](deploy/scripts/healthcheck.sh) | 检查磁盘/内存/负载/服务/Nginx/数据库/健康端点/上传目录/备份新鲜度，输出 PASS/WARN/FAIL，可挂 cron |
+| 巡检实录 | [`docs/ops/healthcheck-20261030.txt`](docs/ops/healthcheck-20261030.txt) | 真机执行原始输出，15 项全 PASS、退出码 0 |
 | 监控组件 | [`ops/monitor/`](ops/monitor/) | 零依赖指标采集 + 告警状态机 + SMTP 通知，不依赖任何付费服务 |
+
+真机跑通（2026-10-30，RHEL 9.3 虚拟机，`sudo bash deploy/scripts/healthcheck.sh`）：
+
+```
+结果：FAIL 0 项 / WARN 0 项
+```
+
+定时任务已挂到 root crontab：每天 03:10 备份数据库（`--no-tablespaces` + 解压/表数/收尾标记三重自检，残缺即删并失败退出），每天 08:00 静默巡检（`--quiet` 只在 WARN/FAIL 时输出，便于接告警）。
 
 5 起故障里，3 起属于「系统不报错但功能不对」：
 

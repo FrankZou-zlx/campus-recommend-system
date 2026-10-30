@@ -1,0 +1,51 @@
+校园二手优选 · 一键巡检实录（真机）
+==========================================
+
+主机      ：RHEL 9.3 虚拟机 172.24.126.135（hostname: localhost.localdomain）
+执行时间  ：2026-10-30 13:40 CST
+执行命令  ：sudo bash /opt/campus-mall/deploy/scripts/healthcheck.sh
+执行身份  ：root（部署账号 zou 经 sudo 提权）
+退出码    ：0（FAIL 0 / WARN 0）
+
+用途：证明巡检脚本在真机上跑通，且 9 大类 15 个检查项全部通过。
+本文件由脚本直接输出，未经手工改写。
+
+------------------------------------------
+
+
+== 后端服务 ==
+[PASS] campus-mall-api 运行中（自 Fri 2026-10-30 13:39:07 CST）
+
+== Nginx ==
+[PASS] nginx 运行中
+[PASS] nginx 配置语法正常
+
+== 数据库 ==
+[PASS] MySQL 连接正常（campus_mall）
+[PASS] 商品表记录数：64
+
+== HTTP 健康端点 ==
+[PASS] 后端 /api/health → 200
+[PASS] 前端首页 → 200
+
+== 磁盘 ==
+[PASS] 挂载点 / 使用率 24%
+[PASS] 挂载点 /boot 使用率 31%
+[PASS] 挂载点 /boot/efi 使用率 2%
+
+== 内存 ==
+[PASS] 内存使用率 27%
+
+== 负载 ==
+[PASS] 1 分钟负载 0.24（4 核）
+
+== 上传目录 ==
+[PASS] /opt/campus-mall/backend/uploads 可写
+
+== 备份 ==
+[PASS] 最新备份 0 小时前：campus_mall_20261030_134042.sql.gz
+
+-----------------------------------------
+结果：FAIL 0 项 / WARN 0 项
+详细日志：/tmp/healthcheck.log
+-----------------------------------------

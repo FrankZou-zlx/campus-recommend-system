@@ -59,13 +59,16 @@ head2 "数据库"
 if [ -r "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   set -a; . "$ENV_FILE"; set +a
-  if command -v mysql >/dev/null 2>&1; then
+  if [ -z "${DB_PASSWORD:-}" ]; then
+    warn "$ENV_FILE 未配置 DB_PASSWORD，跳过数据库检查"
+  elif command -v mysql >/dev/null 2>&1; then
     if out=$(mysql -h"${DB_HOST:-127.0.0.1}" -P"${DB_PORT:-3306}" \
-             -u"${DB_USER:-campus}" -p"${DB_PASSWORD:?}" \
+             -u"${DB_USER:-campus}" -p"$DB_PASSWORD" \
              -e "SELECT 1" "${DB_NAME:-campus_mall}" 2>&1); then
       pass "MySQL 连接正常（${DB_NAME:-campus_mall}）"
-      if cnt=$(mysql -N -B -h"${DB_HOST:-127.0.0.1}" -u"${DB_USER:-campus}" \
-               -p"${DB_PASSWORD}" -e "SELECT COUNT(*) FROM product" "${DB_NAME:-campus_mall}" 2>/dev/null); then
+      if cnt=$(mysql -N -B -h"${DB_HOST:-127.0.0.1}" -P"${DB_PORT:-3306}" \
+               -u"${DB_USER:-campus}" -p"$DB_PASSWORD" \
+               -e "SELECT COUNT(*) FROM product" "${DB_NAME:-campus_mall}" 2>/dev/null); then
         [ "${cnt:-0}" -gt 0 ] && pass "商品表记录数：$cnt" || warn "商品表为空，确认是否刚重装"
       fi
     else

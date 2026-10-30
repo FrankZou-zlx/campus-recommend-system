@@ -17,6 +17,8 @@
 #   sudo bash deploy/scripts/update.sh --no-demo-orders
 #   # 如果想重新灌演示数据（会清空商品/订单/行为，慎用）：
 #   sudo bash deploy/scripts/update.sh --reseed
+#   # 只跑巡检、不做任何部署动作（等价于单独执行 healthcheck.sh）：
+#   sudo bash deploy/scripts/update.sh --healthcheck
 # =====================================================================
 set -euo pipefail
 
@@ -30,15 +32,25 @@ API_ENV="/etc/campus-mall/api.env"
 DO_SCHEMA=0
 DO_RESEED=0
 SKIP_DEMO_ORDERS=0
+DO_HEALTHCHECK=0
 for arg in "$@"; do
   case "$arg" in
     --schema) DO_SCHEMA=1 ;;
     --reseed) DO_RESEED=1 ;;
     --no-demo-orders) SKIP_DEMO_ORDERS=1 ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    --healthcheck) DO_HEALTHCHECK=1 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "未知参数: $arg"; exit 1 ;;
   esac
 done
+
+# 只巡检、不做任何部署动作。巡检需要读 /etc/campus-mall/api.env(640 root:campus)
+# 和 /var/backups 等 root 资源，而部署账号只有本脚本一条免密 sudo，
+# 所以在这里开一个只读出口，供 cron / 交接时反复调用。
+if [ "$DO_HEALTHCHECK" -eq 1 ]; then
+  [ "$(id -u)" -eq 0 ] || { echo "请用 sudo 运行"; exit 1; }
+  exec bash "$SRC/deploy/scripts/healthcheck.sh"
+fi
 
 c_ok()   { printf '  \033[32m✔\033[0m %s\n' "$1"; }
 c_info() { printf '  → %s\n' "$1"; }

@@ -73,8 +73,17 @@ sudo bash deploy/scripts/update.sh
 sudo bash deploy/scripts/backup-db.sh
 
 # 恢复
-gunzip -c /var/backups/campus-mall/campus_mall-YYYYMMDD.sql.gz \
+gunzip -c /var/backups/campus-mall/campus_mall_20261030_134042.sql.gz \
   | mysql -u campus -p campus_mall
+```
+
+脚本备份完会自检三件事：`gzip -t` 能解压、末尾有 `Dump completed` 收尾标记、`CREATE TABLE` 数量不少于 13 张。
+任一不满足就删掉残缺文件并以非 0 退出——**宁可让 cron 报错，也不留一个看起来正常、恢复时才炸的空壳备份**。
+
+已挂 root crontab，每天 03:10 自动备份、保留 7 天：
+
+```bash
+10 3 * * * /bin/bash /opt/campus-mall/deploy/scripts/backup-db.sh >> /var/log/campus-mall-backup.log 2>&1
 ```
 
 恢复演练建议每季度做一次，**没演练过的备份不算备份**。
@@ -105,17 +114,23 @@ gunzip -c /var/backups/campus-mall/campus_mall-YYYYMMDD.sql.gz \
 ## 七、日常巡检
 
 ```bash
-sudo bash deploy/scripts/healthcheck.sh
+sudo bash deploy/scripts/healthcheck.sh          # 全量输出
+sudo bash deploy/scripts/healthcheck.sh --quiet  # 只输出 WARN / FAIL，适合挂 cron
+
+# 部署账号只有 update.sh 一条免密 sudo 时，用这个入口走同一个巡检（只读，不做部署）
+sudo bash deploy/scripts/update.sh --healthcheck
 ```
 
 检查项：磁盘、内存、负载、服务状态、Nginx 配置、数据库连通、HTTP 健康端点、上传目录可写、备份新鲜度。
-输出 `PASS / WARN / FAIL`，有 `FAIL` 时退出码非 0，可直接挂 cron：
+输出 `PASS / WARN / FAIL`，有 `FAIL` 时退出码非 0，可直接挂 cron。
+
+已挂 root crontab，每天 08:00 静默巡检：
 
 ```bash
-# 每天 8:00 巡检，异常时把结果发到本机邮件
-0 8 * * * /opt/campus-mall/deploy/scripts/healthcheck.sh || \
-  mail -s "[campus-mall] 巡检异常" ops@example.com < /tmp/healthcheck.log
+0 8 * * * /bin/bash /opt/campus-mall/deploy/scripts/healthcheck.sh --quiet >> /var/log/campus-mall-health.log 2>&1
 ```
+
+最近一次真机执行（2026-10-30）结果 `FAIL 0 / WARN 0`，原始输出见 [`docs/ops/healthcheck-20261030.txt`](ops/healthcheck-20261030.txt)。
 
 ## 八、值班交接清单
 
