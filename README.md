@@ -13,7 +13,7 @@
 | 站内私信 + AI 卖家自动回复（零成本规则引擎，可切换 LLM） | 服务端强制内容审核，商品发布 / 编辑 / 私信 / 昵称 4 个入口，不依赖前端拦截 |
 | 管理员与普通用户身份完全隔离：独立表、独立登录入口、前端路由守卫 | 启动即校验环境变量，口令与密钥缺失直接拒绝启动，不设源码内默认值 |
 
-> 下文依次为：技术栈 → 本地运行 → 功能一览 → 推荐算法 → 上云 → Linux 部署 → 目录结构。
+> 下文依次为：技术栈 → 本地运行 → 功能一览 → 推荐算法 → 上云 → Linux 部署 → **运维与故障复盘** → 目录结构。
 
 ## 一、技术栈
 - 前端：Vue3 + Element Plus + Axios，免构建方案（依赖内置在 `frontend/vendor/`，用自带的零依赖服务器 `serve.cjs` 托管，不需要 `npm install`）
@@ -119,7 +119,28 @@ sudo bash deploy/scripts/update.sh --reseed   # 重新灌演示数据（会清�
 sudo bash deploy/scripts/setup-git.sh         # 服务器上执行一次
 ```
 
-## 七、目录结构
+## 七、运维与故障复盘
+
+这套系统不只是"能跑起来"，还留下了可查的运维痕迹：
+
+| 材料 | 位置 | 内容 |
+| --- | --- | --- |
+| 运维手册 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | 常用命令、发布与回滚、备份恢复、告警处置对照表、常见故障速查、值班交接清单 |
+| 故障复盘 | [`docs/incident/`](docs/incident/) | 5 起真实故障的现象、排查过程、根因、修复与预防 |
+| 一键巡检 | `deploy/scripts/healthcheck.sh` | 检查磁盘/内存/负载/服务/Nginx/数据库/健康端点/上传目录/备份新鲜度，输出 PASS/WARN/FAIL，可挂 cron |
+| 监控组件 | [`ops/monitor/`](ops/monitor/) | 零依赖指标采集 + 告警状态机 + SMTP 通知，不依赖任何付费服务 |
+
+5 起故障里，3 起属于「系统不报错但功能不对」：
+
+| 编号 | 故障 | 根因 |
+| --- | --- | --- |
+| INC-001 | 部署脚本在部署目录执行，源码被删、站点 500 | `SRC==DST` 时先 `rm -rf` 再 `cp`，自己删了自己 |
+| INC-002 | 前端改动"永远不生效" | 入口 HTML 被强缓存 7 天，资源清单指向旧文件 |
+| INC-003 | 卖家发货接口恒失败 | 单行结果用 `!row.length` 判空，对象无 `length`，条件恒真 |
+| INC-004 | 告警邮件一封都发不出 | 465 隐式 SSL 分支漏发 `EHLO`，`AUTH` 被 503 拒绝 |
+| INC-005 | 商品显示「未分类」 | 删分类不查引用 + 自增计数未重置，留下悬空 `category_id` |
+
+## 八、目录结构
 ```
 campus-mall/
 ├── backend/
@@ -139,14 +160,18 @@ campus-mall/
 │   └── vendor/              # 已下载的 vue.global.js / element-plus.* / axios / 中文包
 ├── demo/                    # 公开演示版源码（浏览器内跑协同过滤，localStorage 持久化）
 ├── demo-dist/               # 演示版纯净部署目录（只含运行需要的文件）
+├── docs/
+│   ├── RUNBOOK.md           # ★ 运维手册
+│   └── incident/            # ★ 5 份故障复盘
+├── ops/monitor/             # ★ 指标采集 / 告警判定 / SMTP 通知
 ├── docker-compose.yml       # 方式 A：一键部署编排（MySQL + API + Nginx）
 ├── .env.example             # 方式 A 的环境变量模板
-├── LINUX-DEPLOY.md          # ★ Linux 部署与运维手册（RHEL 系）
+├── LINUX-DEPLOY.md          # Linux 部署细节（RHEL 系）
 └── deploy/                  # 部署物料
     ├── docker/              #   Dockerfile.backend / Dockerfile.frontend / nginx-docker.conf
     ├── mysql/init.sql       #   容器首次启动自动建库建表（由 schema.sql 生成）
     ├── nginx/campus-mall.conf      # 裸机 Nginx 站点 + 反向代理
     ├── systemd/campus-mall-api.service  # 裸机后端服务单元
     ├── env/api.env.example  #   裸机环境变量模板（/etc/campus-mall/api.env）
-    └── scripts/             #   install-rhel.sh / backup-db.sh / gen-init-sql.js / check-deploy.py
+    └── scripts/             #   install-rhel.sh / update.sh / healthcheck.sh / backup-db.sh / check-deploy.py
 ```
