@@ -100,6 +100,16 @@ if [ -d "$SRC/demo" ]; then
     cp -r "$SRC/demo/." "$DST/demo/"
   fi
 fi
+# 作品集单页（可选）：/portfolio/ 路径，静态页，供对外分享
+if [ -d "$SRC/portfolio" ]; then
+  rm -rf "$DST/portfolio"
+  mkdir -p "$DST/portfolio"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude='_*' "$SRC/portfolio/" "$DST/portfolio/"
+  else
+    cp -r "$SRC/portfolio/." "$DST/portfolio/"
+  fi
+fi
 # 自检 / 开发用文件（_ 开头）不该出现在服务器上：frontend 里会被公开访问，demo 里也没必要
 rm -f "$DST"/frontend/_* "$DST"/demo/_* 2>/dev/null || true
 chown -R "$RUN_USER:$RUN_USER" "$DST"
