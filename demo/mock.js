@@ -425,14 +425,18 @@
   function setMessages(a) { LS.set('demo_messages', a); }
 
   // ---------- AI 卖家自动回复（演示版内置规则引擎，与后端 services/ai-seller.js 简化一致）----------
-  // 意图规则顺序即优先级：砍价/询价优先于问候，避免「你好，能便宜点吗」被判成问候
+  // 回复边界与线上一致：只答商品信息 / 物流进度 / 店铺服务；
+  // 严禁改价、折扣、包邮等价格承诺，也严禁退款赔付承诺与站外交易引导。
+  // 意图规则顺序即优先级：退款/站外/议价优先于问候，避免「你好，能便宜点吗」被判成问候
   const AI_INTENTS = [
-    { key: 'bargain', kw: ['便宜', '少点', '优惠', '刀', '降价', '让点', '能少', '最低', '贵'] },
+    { key: 'refund', kw: ['退款', '退货', '赔付', '赔偿', '补差价', '售后', '坏了', '质量问题'] },
+    { key: 'offsite', kw: ['微信', '加v', 'vx', '支付宝', '转账', '二维码', '私下'] },
+    { key: 'bargain', kw: ['便宜', '少点', '优惠', '刀', '降价', '让点', '能少', '最低', '贵了', '打折', '包邮吗'] },
     { key: 'price', kw: ['多少钱', '价格', '什么价', '几块', '报价', '多少出'] },
     { key: 'accessory', kw: ['配件', '发票', '保修', '包装', '说明书', '原装'] },
     { key: 'stock', kw: ['还有吗', '还有货', '现货', '库存', '还有几个', '卖掉', '还在吗', '在了吗'] },
     { key: 'condition', kw: ['几成新', '成色', '新旧', '磨损', '划痕', '用了多久', '破损'] },
-    { key: 'delivery', kw: ['包邮', '快递', '发货', '邮寄', '顺丰', '运费'] },
+    { key: 'delivery', kw: ['快递', '发货', '邮寄', '顺丰', '运费', '到货'] },
     { key: 'location', kw: ['哪里', '在哪', '面交', '地点', '自提', '宿舍', '教学楼', '图书馆'] },
     { key: 'thanks', kw: ['谢谢', '感谢', '多谢', '麻烦了'] },
     { key: 'greeting', kw: ['你好', '您好', '在吗', '在么', '哈喽', 'hi', 'hello'] },
@@ -453,17 +457,17 @@
     const title = item ? item.title : '这件东西';
     const price = item ? String(Number(item.price)) : '';
     const stock = item ? Number(item.stock) : 0;
-    const offer = item && Number(item.price) >= 20 ? Math.max(1, Math.round(Number(item.price) * 0.95)) : null;
     switch (intent) {
       case 'bargain':
-        return offer
-          ? one([`可以小刀～${title} 原价 ${price}，你诚心要的话 ${offer} 元给你，自提还能再商量。`,
-                 `价格还能聊，${offer} 元怎么样？${title} 我平时用得不多。`])
-          : one([`这个 ${price} 元已经很实惠啦，真想要的话我送你点小配件～`,
-                 `${title} 就 ${price} 元，价格压得很低了，我再送你点东西吧～`]);
+        return one(['价格我不能替你改哦～页面标价就是卖家定的，能不能优惠要卖家本人回复确认，我不做任何价格承诺。',
+                    '议价这块我真做不了主，改价、让价都得卖家本人点头，我只能把商品信息如实告诉你。']);
+      case 'refund':
+        return '退款、退货和赔付要走订单流程，由卖家本人处理并在订单里确认，我这边不能承诺结果。';
+      case 'offsite':
+        return '平台内下单和沟通就好啦，我不支持加微信、私下转账这类站外方式，对双方都没保障。';
       case 'price':
-        return item ? `${title} 是 ${price} 元，${stock > 1 ? `还有 ${stock} 件` : '就剩最后一件了'}。`
-                    : '你想问哪一件呀？我主页的在售商品都标了价，看中哪个我再说说细节。';
+        return item ? `${title} 页面标价 ${price} 元，${stock > 1 ? `还有 ${stock} 件` : '就剩最后一件了'}；价格以商品页为准，改价要走卖家本人确认。`
+                    : '你想问哪一件呀？我主页的在售商品都标了价，价格以商品页为准。';
       case 'stock':
         if (!item) return '还有的，你想要哪件？';
         if (stock <= 0) return '这件刚好出完了，可以看看我别的闲置～';
@@ -472,7 +476,7 @@
       case 'condition':
         return `${title} 成色挺好的，平时用得不多，有小痕迹的地方我提前跟你说，细节图可以拍给你。`;
       case 'delivery':
-        return '校内可以直接给你送过去，要寄快递的话这件我给你包邮～';
+        return '校内可以约面交；要发快递的话，运费和时效以商品页说明为准，我这边不做包邮承诺。';
       case 'location':
         return '我就在校内，宿舍、教学楼、图书馆都能约，看你哪个时间方便～';
       case 'accessory':
@@ -480,11 +484,11 @@
       case 'thanks':
         return one(['不客气～有需要随时找我。', '好的，随时联系我哈。']);
       case 'greeting':
-        return item ? `你好～${title} 还在的，有什么想了解的？价格、成色、面交都能聊。`
+        return item ? `你好～${title} 还在的，有什么想了解的？成色、配件、面交这些我都能说。`
                     : '你好～有什么想了解的尽管问，我这几件闲置都还在售。';
       default:
-        return item ? `收到～${title} 还在售，${price ? `价格 ${price} 元，` : ''}有别的疑问也可以一起问我。`
-                    : '收到～你可以说下具体看中的商品，我给你详细说说。';
+        return item ? `收到～${title} 还在售，页面标价 ${price} 元，成色配件我都能补充，你还想了解哪方面？`
+                    : '我只回答商品信息、物流进度和店铺服务相关的问题，你先说看中哪件～';
     }
   }
   function getUsers() { return LS.get('demo_users', {}); }
@@ -798,16 +802,23 @@
       const peers = {};
       msgs.forEach(m => {
         const peer = m.from_id === u.id ? m.to_id : m.from_id;
-        if (!peers[peer] || m.created_at > peers[peer].last_time) {
+        if (!peers[peer]) {
           const pu = userById(peer);
           peers[peer] = {
             contact_id: peer,
             nickname: (pu || {}).nickname || ('用户' + peer),
             seller_mode: pu ? (pu.seller_mode || 'manual') : 'manual',
             last_msg: m.content,
-            last_time: m.created_at
+            last_time: m.created_at,
+            unread: 0
           };
         }
+        if (m.created_at > peers[peer].last_time) {
+          peers[peer].last_msg = m.content;
+          peers[peer].last_time = m.created_at;
+        }
+        // 未读口径与后端一致：收件人是我、且还没读过
+        if (m.to_id === u.id && !Number(m.is_read)) peers[peer].unread += 1;
       });
       return { code: 0, data: Object.values(peers).sort((a, b) => b.last_time - a.last_time) };
     }
@@ -825,12 +836,26 @@
         ai_seller: !!(pu && pu.seller_mode === 'auto')
       };
     }
+    if (parts[0] === 'message' && parts[1] === 'read' && method === 'put') {
+      // 与后端同语义：只由接收方打开会话时触发，仅更新「发给我的未读」
+      const u = curUser(false); if (!u) return { code: 401 };
+      const peer = Number(parts[2]);
+      if (!peer) return { code: 400, msg: '会话对象不合法' };
+      if (peer === u.id) return { code: 0, data: { updated: 0 } };
+      const list = getMessages();
+      let n = 0;
+      list.forEach(m => {
+        if (m.to_id === u.id && m.from_id === peer && !Number(m.is_read)) { m.is_read = 1; n += 1; }
+      });
+      setMessages(list);
+      return { code: 0, data: { updated: n } };
+    }
     if (parts[0] === 'message' && parts[1] === 'send') {
       const u = curUser(false); if (!u) return { code: 401 };
       const toId = Number(body.to_id);
       const pid = Number(body.product_id) || 0;
       const msgs = getMessages();
-      msgs.push({ id: msgs.length + 1, from_id: u.id, to_id: toId, content: body.content, sender_type: 0, product_id: pid, created_at: Date.now() });
+      msgs.push({ id: msgs.length + 1, from_id: u.id, to_id: toId, content: body.content, sender_type: 0, product_id: pid, is_read: 0, created_at: Date.now() });
       setMessages(msgs);
 
       const peer = userById(toId);
@@ -849,6 +874,7 @@
           content: aiCompose(intent, item),
           sender_type: 1,
           product_id: pid,
+          is_read: 0,
           created_at: Date.now()
         });
         setMessages(list);

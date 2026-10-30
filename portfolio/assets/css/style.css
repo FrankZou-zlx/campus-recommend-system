@@ -374,6 +374,42 @@ a { color: inherit; text-decoration: none; }
   background: #fffbeb; border-color: #fde68a; border-left-color: var(--amber);
 }
 
+/* ---------------- 内容审核双闸门 ---------------- */
+.audit {
+  margin-top: 26px; background: #fff; border: 1px solid var(--warm-line);
+  border-radius: var(--radius); padding: 22px 24px; box-shadow: var(--shadow);
+}
+.audit-head h3 { font-size: 18px; margin: 0 0 8px; }
+.audit-head p { margin: 0 0 18px; font-size: 14.5px; color: var(--ink-2); }
+.audit-body { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.audit-col ul { margin: 10px 0 0; padding-left: 18px; }
+.audit-col li { font-size: 14px; color: var(--ink-2); line-height: 1.75; margin-bottom: 6px; }
+.audit-col li b { color: var(--ink); }
+.audit-tag {
+  display: inline-block; font-size: 13px; font-weight: 600; color: var(--warm-deep);
+  background: var(--warm-soft); border: 1px solid var(--warm-line);
+  border-radius: 999px; padding: 4px 12px;
+}
+.audit code, .card code {
+  background: #f3f4f6; border-radius: 4px; padding: 1px 5px;
+  font-size: 12.5px; color: #374151;
+}
+
+/* ---------------- 卡片内要点清单（可答 / 禁答） ---------------- */
+.card-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.card-list li {
+  position: relative; font-size: 13.5px; line-height: 1.7;
+  padding-left: 20px; margin-bottom: 8px; color: var(--ink-2);
+}
+.card-list li::before {
+  position: absolute; left: 0; top: 0; font-weight: 700;
+}
+.card-list li.ok::before { content: "✓"; color: var(--green); }
+.card-list li.no::before { content: "✕"; color: #dc2626; }
+.card-list li.ok { color: var(--ink-2); }
+.card-list li.no { color: #7f1d1d; }
+.card-foot { margin: 10px 0 0; font-size: 13px; color: var(--ink-3); }
+
 /* ---------------- 页脚 ---------------- */
 .footer { background: var(--ink); color: #e5e7eb; padding: 34px 0; margin-top: 20px; }
 .footer-inner { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
@@ -406,6 +442,7 @@ a { color: inherit; text-decoration: none; }
   .hero-visual { width: 100%; max-width: 480px; margin: 6px auto 0; }
   .hero-visual figcaption { text-align: left; }
   .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .audit-body { grid-template-columns: 1fr; gap: 18px; }
   .stats { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 760px) {

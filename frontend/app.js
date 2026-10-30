@@ -847,11 +847,37 @@
       const boxRef = ref(null);     // 消息区容器，用于自动滚到底
       let aiTimer = null;
 
+      // 当前登录用户 id：用来区分「我发出的」与「发给我的」消息
+      let userMe = 0;
+      try {
+        const t = (localStorage.getItem('token') || '').split('.')[1] || '{}';
+        userMe = Number(JSON.parse(atob(t)).id) || 0;
+      } catch (e) {}
+      // 未读判定：收件人是我、且尚未读
+      const isUnreadInbound = (m) => Number(m.to_id) === userMe && !Number(m.is_read);
+
       function scrollBottom() {
         nextTick(() => {
           const el = boxRef.value;
           if (el) el.scrollTop = el.scrollHeight;
         });
+      }
+      /**
+       * 标记已读（只由接收方「进入会话」触发）
+       * - 只有当会话里存在「发给我的未读消息」时才发请求；
+       * - 发送方打开自己的会话时，inbound 为空 → 一个请求都不发，
+       *   自然不可能把自己看过的消息改成已读；
+       * - 成功后本地同步 is_read 与左侧未读角标，避免再拉一次全量列表。
+       */
+      async function markRead(uid) {
+        if (!talks.value.some(isUnreadInbound)) return;
+        const d = await U('put', '/message/read/' + uid);
+        if (d.code !== 0) return;
+        talks.value = talks.value.map((m) =>
+          Number(m.to_id) === userMe ? Object.assign({}, m, { is_read: 1 }) : m
+        );
+        const c = contacts.value.find((x) => Number(x.contact_id) === Number(uid));
+        if (c) c.unread = 0;
       }
       async function loadContacts() {
         if (!requireLogin()) return;
@@ -871,6 +897,8 @@
           // 否则回退到本会话历史消息里最近的 product_id，刷新页面也不丢上下文
           const withPid = (d.data || []).filter((m) => Number(m.product_id) > 0);
           curPid.value = Number(pid) || (withPid.length ? Number(withPid[withPid.length - 1].product_id) : 0);
+          // 进来之后才把「发给我的未读」置为已读
+          await markRead(uid);
         }
         scrollBottom();
       }
@@ -895,6 +923,8 @@
           if (d.code !== 0) continue;
           const grew = d.data.length > talks.value.length;
           talks.value = d.data;
+          // AI 回复是「发给我」的消息，此刻我正停在会话里 → 顺手置已读
+          await markRead(curId.value);
           scrollBottom();
           const last = d.data[d.data.length - 1];
           if (grew && last && Number(last.sender_type) === 1) break;  // 已拿到 AI 回复
@@ -903,7 +933,7 @@
       }
       onMounted(loadContacts);
       onBeforeUnmount(() => { if (aiTimer) { clearTimeout(aiTimer); } });
-      return { contacts, talks, content, curId, curName, aiSeller, aiTyping, boxRef, openTalk, send, go };
+      return { contacts, talks, content, curId, curName, aiSeller, aiTyping, boxRef, openTalk, send, go, userMe };
     },
     template: `
       <div class="container">
@@ -912,9 +942,12 @@
           <el-card style="width:240px;min-height:360px">
             <div v-if="!contacts.length" class="empty">暂无会话</div>
             <div v-for="c in contacts" :key="c.contact_id" class="card" style="margin-bottom:8px;cursor:pointer" :style="curId===c.contact_id?'border-color:#f97316':''" @click="openTalk(c.contact_id, c.nickname)">
-              <div style="padding:8px 10px">
-                <b>{{ c.nickname }}</b><span v-if="c.seller_mode==='auto'" class="ai-badge">AI</span>
-                <div style="color:#909399;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.last_msg }}</div>
+              <div style="padding:8px 10px;display:flex;align-items:flex-start;gap:6px">
+                <div style="flex:1;min-width:0">
+                  <b>{{ c.nickname }}</b><span v-if="c.seller_mode==='auto'" class="ai-badge">AI</span>
+                  <div style="color:#909399;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.last_msg }}</div>
+                </div>
+                <span v-if="Number(c.unread)>0" style="flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#f97316;color:#fff;font-size:11px;line-height:18px;text-align:center">{{ Number(c.unread)>99 ? '99+' : c.unread }}</span>
               </div>
             </div>
           </el-card>
@@ -928,6 +961,8 @@
                 <div v-for="(m,i) in talks" :key="i" style="margin:6px 0" :style="{textAlign: m.from_id===userMe?'right':'left'}">
                   <span v-if="Number(m.sender_type)===1" class="ai-badge">AI</span>
                   <span class="chat-bubble" :class="{ 'ai-bubble': Number(m.sender_type)===1, 'me-bubble': m.from_id===userMe }">{{ m.content }}</span>
+                  <!-- 已读回执：只有「我发出的」消息才显示，状态由接收方打开会话时翻转 -->
+                  <div v-if="m.from_id===userMe" style="font-size:11px;color:#c0c4cc;margin-top:2px">{{ Number(m.is_read)===1 ? '已读' : '未读' }}</div>
                 </div>
                 <div v-if="aiTyping" style="margin:6px 0;text-align:left">
                   <span class="chat-bubble ai-bubble">{{ curName }} 正在输入…</span>
@@ -941,16 +976,7 @@
             <div v-else class="empty">选择一个会话开始聊天</div>
           </el-card>
         </div>
-      </div>`,
-    // 补充：当前用户 id 用于气泡左右
-    data() {
-      let me = 0;
-      try {
-        const t = (localStorage.getItem('token') || '').split('.')[1] || '{}';
-        me = Number(JSON.parse(atob(t)).id) || 0;
-      } catch (e) {}
-      return { userMe: me };
-    }
+      </div>`
   };
 
   // ---------- 个人中心 ----------

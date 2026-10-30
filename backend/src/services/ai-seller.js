@@ -9,7 +9,19 @@
  *      （OpenAI 兼容接口）时，用大模型结合商品上下文生成回复；
  *   2) 规则引擎（默认兜底）：本地意图识别 + 场景话术库。无需联网、无需密钥，
  *      保证虚拟机在完全离线或未配置密钥时依然可以正常演示。
- *   3) 安全兜底：两条通道的输出都会再过一遍敏感词过滤，命中则改用安全话术。
+ *   3) 安全兜底：两条通道的输出都会再过一遍敏感词过滤 + 商务边界审查
+ *      （见 guardReply），命中红线则整体替换为合规模板。
+ *
+ * 【回复边界（本次修订的核心约束）】
+ *   AI 只代表「店铺自动应答」，不代表卖家本人做出任何商务承诺，因此：
+ *   - 允许回答：① 商品信息（标题/标价/成色/配件/库存/类目/描述）
+ *               ② 物流进度（发货时间、快递方式、自提/面交地点）
+ *               ③ 店铺服务（营业时间、约见方式、售后流程指引）
+ *   - 一律禁止：改价、让价、议价、折扣、包邮/运费承诺、任何形式的报价承诺；
+ *               退款、退货、赔付、补差价等售后结果承诺；
+ *               引导加微信/支付宝/私下转账等站外交易。
+ *   - 输出层再兜一道 guardReply：即使 LLM 越界，也会被替换成合规话术，
+ *     并把命中原因写进日志（供内容审核与论文取证）。
  *
  * 触发条件（由 routes/message.js 调用方把关）：
  *   - 收件人 seller_mode = 'auto'（该账号即「AI 卖家」）
@@ -19,7 +31,7 @@
  *   - AI 自己发出的消息不再触发（sender_type=1 不参与触发）
  *
  * 输入：{ sellerId, buyerId, content, productId }
- * 输出：{ content, intent, source: 'llm'|'rule'|'safe', confidence }
+ * 输出：{ content, intent, scope, source: 'llm'|'rule'|'safe', confidence }
  */
 const { query } = require('../db');
 const { findSensitive } = require('../utils/sensitive');
@@ -31,26 +43,64 @@ const REPLY_DELAY_MIN = 600;          // 模拟「正在输入」的最短延迟
 const REPLY_DELAY_MAX = 1400;         // 模拟「正在输入」的最长延迟
 const MAX_REPLY_LEN = 300;            // 单条回复最大长度
 
+// 三类允许回答的问题域（白名单，用于日志与前端提示）
+const SCOPE = {
+  product: '商品信息',
+  logistics: '物流进度',
+  service: '店铺服务',
+};
+
+// 红线关键词组：命中即视为「越界承诺」，整条替换为合规模板
+// 注意：只拦「承诺句式」，正常陈述标价（如「页面标价 199 元」）不在此列
+const FORBIDDEN_OUTPUT = [
+  {
+    key: 'price_commit',
+    label: '价格承诺',
+    re: /(?:给|算|按|只要|就|再)\s*(?:你|您)?\s*\d+(?:\.\d+)?\s*(?:元|块)|\d+(?:\.\d+)?\s*折|(?:便宜|少|降|让)\s*\d+(?:\.\d+)?\s*(?:元|块)?|包邮|运费我(?:出|付)|邮费我(?:出|付)|免运费|最低(?:给你|卖)/
+  },
+  {
+    key: 'refund_commit',
+    label: '退款赔付承诺',
+    re: /(?:可以|支持|保证|承诺|包)\s*[^，。；]{0,6}(?:退款|退货|赔付|赔偿|补差价|换新)|包退|包赔|七天无理由/
+  },
+  {
+    key: 'offsite',
+    label: '站外交易',
+    re: /(?:加|扫|留)\s*[^，。；]{0,4}(?:微信|vx|v信|qq|二维码)|私下(?:转账|交易|付款)|支付宝转账|站外(?:交易|付款)/i
+  },
+];
+
+// 越界后的统一安全话术（按命中类型给出，既不承诺也不冷场）
+const SAFE_REPLY = {
+  price_commit: '价格这块我不能替卖家做主哦，页面标价就是卖家定的价，改价或优惠要他本人确认，我不做任何价格承诺～',
+  refund_commit: '退款、退货和赔付需要走订单流程，由卖家本人处理并在订单里确认，我这边不能承诺结果，也不能替你申请赔偿。',
+  offsite: '平台内下单和沟通就好啦，我不支持加微信、私下转账这类站外方式，这样对双方都没保障。',
+  sensitive: '这个问题我稍后仔细回复你，你也可以先看看商品详情页的信息～',
+  default: '我这边只负责商品信息、物流进度和店铺服务相关的问题；价格能不能改、退款赔付这些都需要卖家本人确认。',
+};
+
 // 进程内冷却记录：key = `${buyerId}:${sellerId}` -> 上次回复时间戳
 const lastReplyAt = new Map();
 
 // ---------------------------------------------------------------- 意图规则
-// 数组顺序即优先级：砍价/询价最优先，问候类最后（避免「你好，能便宜点吗」被判成问候）
+// 数组顺序即优先级：退款/站外/砍价最优先，问候类最后（避免「你好，能便宜点吗」被判成问候）
 const INTENT_RULES = [
-  { key: 'bargain',   label: '砍价',   kw: ['便宜', '少点', '少一', '优惠', '刀', '降价', '让点', '让点价', '能少', '最低', '贵了', '打折', '划算点', '实惠点'] },
-  { key: 'price',     label: '询价',   kw: ['多少钱', '价格', '什么价', '几块', '几多', '报价', '售价', '多少出'] },
-  { key: 'accessory', label: '配件',   kw: ['配件', '发票', '保修', '包装', '说明书', '原装', '数据线', '充电器'] },
-  { key: 'stock',     label: '库存',   kw: ['还有吗', '还有货', '现货', '库存', '还有几个', '还有几件', '有没有货', '卖掉了吗', '出掉了吗', '还在吗', '在了吗'] },
-  { key: 'condition', label: '成色',   kw: ['几成新', '成色', '新旧', '磨损', '划痕', '用了多久', '用了多长', '破损', '瑕疵', '磕碰', '故障', '好不好用'] },
-  { key: 'delivery',  label: '配送',   kw: ['包邮', '快递', '发货', '邮寄', '顺丰', '运费', '寄过来', '送到', '送吗', '能寄'] },
-  { key: 'location',  label: '面交',   kw: ['哪里', '在哪', '面交', '地点', '自提', '宿舍', '教学楼', '图书馆', '哪个校区', '怎么拿', '见面'] },
-  { key: 'thanks',    label: '致谢',   kw: ['谢谢', '感谢', '多谢', '麻烦了', '收到', '好的', '好嘞', 'ok'] },
-  { key: 'greeting',  label: '问候',   kw: ['你好', '您好', '在吗', '在么', '哈喽', 'hi', 'hello', '在不在', '打扰'] },
+  { key: 'refund',    label: '退款赔付', scope: 'service', kw: ['退款', '退货', '赔付', '赔偿', '补差价', '包退', '包换', '售后', '坏了', '质量问题', '不想要了'] },
+  { key: 'offsite',   label: '站外交易', scope: 'service', kw: ['微信', '加v', 'vx', 'v信', '支付宝', '转账', '二维码', '私下'] },
+  { key: 'bargain',   label: '议价',     scope: 'product', kw: ['便宜', '少点', '少一', '优惠', '刀', '降价', '让点', '让点价', '能少', '最低', '贵了', '打折', '划算点', '实惠点', '包邮吗', '能便宜'] },
+  { key: 'price',     label: '询价',     scope: 'product', kw: ['多少钱', '价格', '什么价', '几块', '几多', '报价', '售价', '多少出'] },
+  { key: 'accessory', label: '配件',     scope: 'product', kw: ['配件', '发票', '保修', '包装', '说明书', '原装', '数据线', '充电器'] },
+  { key: 'stock',     label: '库存',     scope: 'product', kw: ['还有吗', '还有货', '现货', '库存', '还有几个', '还有几件', '有没有货', '卖掉了吗', '出掉了吗', '还在吗', '在了吗'] },
+  { key: 'condition', label: '成色',     scope: 'product', kw: ['几成新', '成色', '新旧', '磨损', '划痕', '用了多久', '用了多长', '破损', '瑕疵', '磕碰', '故障', '好不好用'] },
+  { key: 'delivery',  label: '物流',     scope: 'logistics', kw: ['快递', '发货', '邮寄', '顺丰', '运费', '寄过来', '送到', '送吗', '能寄', '到货', '几天到'] },
+  { key: 'location',  label: '面交',     scope: 'logistics', kw: ['哪里', '在哪', '面交', '地点', '自提', '宿舍', '教学楼', '图书馆', '哪个校区', '怎么拿', '见面'] },
+  { key: 'thanks',    label: '致谢',     scope: 'service', kw: ['谢谢', '感谢', '多谢', '麻烦了', '收到', '好的', '好嘞', 'ok'] },
+  { key: 'greeting',  label: '问候',     scope: 'service', kw: ['你好', '您好', '在吗', '在么', '哈喽', 'hi', 'hello', '在不在', '打扰'] },
 ];
 
 /**
  * 意图识别：返回首个命中的意图（规则顺序即优先级）
- * @returns {{intent:string,label:string,hit:string,confidence:number}}
+ * @returns {{intent:string,label:string,scope:string,hit:string,confidence:number}}
  */
 function detectIntent(text) {
   const t = String(text || '').toLowerCase().trim();
@@ -58,10 +108,10 @@ function detectIntent(text) {
     const hit = rule.kw.find((k) => t.includes(k));
     if (hit) {
       const confidence = Math.min(0.95, 0.6 + hit.length * 0.08);
-      return { intent: rule.key, label: rule.label, hit, confidence: Number(confidence.toFixed(2)) };
+      return { intent: rule.key, label: rule.label, scope: rule.scope, hit, confidence: Number(confidence.toFixed(2)) };
     }
   }
-  return { intent: 'other', label: '其它', hit: '', confidence: 0.3 };
+  return { intent: 'other', label: '其它', scope: 'product', hit: '', confidence: 0.3 };
 }
 
 // ---------------------------------------------------------------- 上下文
@@ -97,15 +147,6 @@ const yuan = (v) => {
   return Number.isInteger(n) ? `${n}` : n.toFixed(2).replace(/0$/, '');
 };
 
-/** 砍价让价策略：小幅让价（约 5%），低价商品改为「送赠品/包邮」话术 */
-function bargainPlan(price) {
-  const p = Number(price) || 0;
-  if (p <= 0) return { offer: null, gift: true };
-  if (p < 20) return { offer: null, gift: true };          // 低价不让价，送东西
-  const offer = Math.max(1, Math.round(p * 0.95));          // 约 5% 让价
-  return { offer, gift: p >= 100 };                         // 高价再叠赠品
-}
-
 /** 商品称呼：优先用聚焦商品标题，否则用总称 */
 function titleOf(ctx) {
   return ctx.focus ? ctx.focus.title : '这件东西';
@@ -114,6 +155,7 @@ function titleOf(ctx) {
 // ---------------------------------------------------------------- 规则引擎
 /**
  * 规则引擎：按意图挑选话术并填充商品信息
+ * 约束：任何分支都不得给出价格让让、折扣、包邮、退款赔付等承诺句式。
  * @returns {string}
  */
 function ruleReply(intent, ctx) {
@@ -126,42 +168,39 @@ function ruleReply(intent, ctx) {
 
   switch (intent) {
     case 'bargain': {
-      if (!item) {
-        return pick([
-          '价格都好商量的～你说个心理价，合适的话我就出了。',
-          '可以聊聊价，诚心要的话我给你让一点。',
-        ]);
-      }
-      const { offer, gift } = bargainPlan(item.price);
-      if (!offer) {
-        return pick([
-          `这个 ${price} 元本来就挺实惠啦，真想要的话我再送你点小配件，或者校内给你送过去～`,
-          `${title} 就 ${price} 元，价格压得很低了，我再送你点东西当补贴吧～`,
-        ]);
-      }
-      const tail = gift ? '，自提的话再送你个小配件' : '，校内自提这个价';
       return pick([
-        `可以小刀～${title} 原价 ${price}，你诚心要的话 ${offer} 元给你${tail}。`,
-        `价格还能聊，${offer} 元怎么样？${title} 我平时用得挺少的${gift ? '，再送你个小配件' : ''}。`,
-        `这样吧，${offer} 元拿走${tail}，就当交个朋友～`,
+        `价格我不能替你改哦～页面标价就是卖家定的，能不能优惠要卖家本人回复确认，我不做任何价格承诺。`,
+        `议价这块我真做不了主，改价、让价都得卖家本人点头，我只能把商品信息如实告诉你。`,
       ]);
     }
     case 'price': {
       if (!item) {
         return pick([
-          '你想问哪一件呀？我主页的在售商品都标了价，看中哪个我再说说细节。',
-          '我这几件价格都不高，你说下具体是哪件，我给你报个实价。',
+          '你想问哪一件呀？我主页在售的商品都标了价，价格以商品页为准，看中哪个我再讲讲细节。',
+          '我这几件都在商品页标了价，你说下具体是哪件，我把参数和成色讲清楚。',
         ]);
       }
       const stockTail = stock > 1 ? `还有 ${stock} 件` : '就剩最后一件了';
       return pick([
-        `${title} 是 ${price} 元，${stockTail}。`,
-        `${title} 我标 ${price} 元，成色挺好，${stockTail}。`,
+        `${title} 页面标价 ${price} 元，${stockTail}；价格以商品页为准，改价要走卖家本人确认。`,
+        `${title} 是 ${price} 元，${stockTail}，价格和库存都以商品页显示为准。`,
+      ]);
+    }
+    case 'refund': {
+      return pick([
+        '退款、退货和赔付要走订单流程，由卖家本人处理并在订单里确认，我这边不能承诺结果。',
+        '售后的事需要你和卖家在订单里走流程，我只能告诉你流程入口，不能替你答应退款或赔偿。',
+      ]);
+    }
+    case 'offsite': {
+      return pick([
+        '平台内下单和沟通就好啦，我不支持加微信、私下转账这类站外方式，对双方都没保障。',
+        '建议就在平台里聊和下单，站外转账、加好友这种我没法配合，也容易出纠纷。',
       ]);
     }
     case 'stock': {
       if (!item) {
-        return pick(['还有的，你想要哪件？', '在的，随时可以出～']);
+        return pick(['还有的，你想要哪件？', '在的，商品页能看到具体库存。']);
       }
       if (stock <= 0) {
         return pick([
@@ -197,13 +236,13 @@ function ruleReply(intent, ctx) {
     }
     case 'delivery': {
       return pick([
-        '校内可以直接给你送过去，要寄快递的话这件我给你包邮～',
-        '同城/校内我都能送，快递也可以，运费我出。',
+        '校内可以约面交；要发快递的话，运费和时效以商品页说明为准，具体由卖家本人确认，我不替他承诺包邮。',
+        '同城/校内能约送，快递也能发，运费怎么算以商品页写的为准，我这边不做包邮承诺。',
       ]);
     }
     case 'location': {
       return pick([
-        '我就在校内，宿舍、教学楼、图书馆都能约，看你哪个时间方便～',
+        '我就在校内，宿舍、教学楼、图书馆都能约，具体时间地点你和卖家定～',
         '支持面交，校内随便约个地方都行，我时间比较灵活。',
       ]);
     }
@@ -219,7 +258,7 @@ function ruleReply(intent, ctx) {
     case 'greeting': {
       if (item) {
         return pick([
-          `你好～${title} 还在的，有什么想了解的？价格、成色、面交都能聊。`,
+          `你好～${title} 还在的，有什么想了解的？成色、配件、面交这些我都能说。`,
           `你好呀～${title} 还在售，想问什么直接说就行。`,
         ]);
       }
@@ -231,16 +270,41 @@ function ruleReply(intent, ctx) {
     default: {
       if (item) {
         return pick([
-          `收到～你问的这个我记下了，${title} 还在售，${price ? `价格 ${price} 元，` : ''}有别的疑问也可以一起问我。`,
-          `好的，${title} 目前还在，具体情况我可以再补充，你还想了解哪方面？`,
+          `收到～${title} 还在售，页面标价 ${price} 元，成色配件我都能补充，你还想了解哪方面？`,
+          `好的，${title} 目前还在，具体情况我可以再补充，你想知道成色还是物流？`,
         ]);
       }
       return pick([
-        '收到～你可以说下具体看中的商品，我给你详细说说。',
-        '好的，有需要随时问我，价格什么的都好商量。',
+        '收到～你可以说下具体看中的商品，我把参数和成色讲清楚。',
+        '我只回答商品信息、物流进度和店铺服务相关的问题，你先说看中哪件～',
       ]);
     }
   }
+}
+
+// ---------------------------------------------------------------- 输出边界审查
+/**
+ * 商务边界审查：拦下 AI 越界承诺（价格 / 退款赔付 / 站外交易）
+ * 说明：带否定词的句子（「不做包邮承诺」「不支持加微信」）属于合规拒绝，
+ *      不判违规——命中位置前 8 个字内出现否定词即跳过该处命中。
+ * @returns {{text:string, blocked:string}} blocked 为空串表示通过
+ */
+function guardReply(text) {
+  const t = String(text || '');
+  const NEG = /[不别没无勿]|拒绝|无法/;
+  for (const rule of FORBIDDEN_OUTPUT) {
+    const re = new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g');
+    let m;
+    while ((m = re.exec(t)) !== null) {
+      const before = t.slice(Math.max(0, m.index - 8), m.index);
+      if (NEG.test(before)) {           // 是否定式表达，属于合规拒绝
+        if (m.index === re.lastIndex) re.lastIndex++;
+        continue;
+      }
+      return { text: SAFE_REPLY[rule.key] || SAFE_REPLY.default, blocked: rule.label };
+    }
+  }
+  return { text: t, blocked: '' };
 }
 
 // ---------------------------------------------------------------- LLM 通道
@@ -250,20 +314,28 @@ function llmEnabled() {
 
 function buildSystemPrompt(ctx) {
   const list = ctx.items.slice(0, 10)
-    .map((i) => `- ${i.title}：${yuan(i.price)} 元，库存 ${i.stock}${i.category_name ? '，类目 ' + i.category_name : ''}`)
+    .map((i) => `- ${i.title}：标价 ${yuan(i.price)} 元，库存 ${i.stock}${i.category_name ? '，类目 ' + i.category_name : ''}`)
     .join('\n');
-  const focusLine = ctx.focus ? `买家正在询问的商品：${ctx.focus.title}（${yuan(ctx.focus.price)} 元）。` : '';
-  return `你是校园二手交易平台的卖家「${ctx.seller.nickname}」，正在与买家进行站内私信沟通。
+  const focusLine = ctx.focus ? `买家正在询问的商品：${ctx.focus.title}（标价 ${yuan(ctx.focus.price)} 元）。` : '';
+  return `你是校园二手交易平台的「店铺自动应答助手」，代卖家「${ctx.seller.nickname}」回复买家私信。
 你的在售商品：
 ${list || '（暂无在售商品）'}
 ${focusLine}
-回复要求：
-1. 口语化、亲切自然，像学生之间聊天，控制在 60 字以内；
-2. 只能基于上面列出的在售商品作答，不要编造没有的商品；
-3. 可以小幅让价，但不得低于原价的 90%；
-4. 引导校内自提或平台内交易，不做平台外交易承诺；
-5. 不输出任何违法违规、色情或敏感内容；
-6. 直接输出回复正文，不要加引号、不要解释。`;
+
+【回答范围】只能回答以下三类问题：
+1. 商品信息：标题、页面标价、成色、配件、库存、类目、描述；
+2. 物流进度：发货时间、快递方式、自提/面交地点；
+3. 店铺服务：约见时间、交易流程指引。
+超出范围的问题，统一回复「这个需要卖家本人确认」。
+
+【绝对禁止（违反即视为事故）】
+1. 不得改价、让价、议价、打折，不得报出任何新的价格，不得承诺包邮或承担运费；
+   买家问价时只能复述商品页标价，并说明「改价需卖家本人确认」。
+2. 不得承诺退款、退货、赔付、赔偿、补差价等任何售后结果，只能说明走订单流程。
+3. 不得引导加微信、支付宝、私下转账等站外交易。
+4. 不得编造没有的商品、库存、参数或优惠活动。
+
+【表达要求】口语化、亲切，像学生聊天，60 字以内；直接输出回复正文，不要加引号或解释。`;
 }
 
 async function llmReply(ctx, content, history) {
@@ -341,11 +413,11 @@ async function recentHistory(buyerId, sellerId, limit = 8) {
 
 /**
  * 生成一条 AI 回复（不做落库）
- * @returns {Promise<{content:string,intent:string,source:string,confidence:number}>}
+ * @returns {Promise<{content:string,intent:string,scope:string,source:string,confidence:number}>}
  */
 async function generateReply({ sellerId, buyerId, content, productId = 0 }) {
   const ctx = await loadContext(sellerId, productId);
-  const { intent, confidence } = detectIntent(content);
+  const { intent, scope, confidence } = detectIntent(content);
 
   let text = '';
   let source = 'rule';
@@ -365,14 +437,22 @@ async function generateReply({ sellerId, buyerId, content, productId = 0 }) {
     source = 'rule';
   }
 
-  // 安全兜底：AI 生成内容同样过敏感词，命中则替换为安全话术
+  // 安全兜底 1：敏感词（违法违规内容）
   if (findSensitive(text)) {
     console.warn('[ai-seller] 生成内容命中敏感词，已替换安全话术');
-    text = '这个问题我稍后仔细回复你，你也可以先看看商品详情～';
+    text = SAFE_REPLY.sensitive;
     source = 'safe';
   }
 
-  return { content: text.slice(0, MAX_REPLY_LEN), intent, source, confidence };
+  // 安全兜底 2：商务边界（价格承诺 / 退款赔付 / 站外交易）
+  const guarded = guardReply(text);
+  if (guarded.blocked) {
+    console.warn(`[ai-seller] 生成内容越界（${guarded.blocked}），已替换为合规话术`);
+    text = guarded.text;
+    source = 'safe';
+  }
+
+  return { content: text.slice(0, MAX_REPLY_LEN), intent, scope, source, confidence };
 }
 
 /** 模拟人类「正在输入」的随机延迟 */
@@ -389,6 +469,7 @@ module.exports = {
   detectIntent,
   loadContext,
   ruleReply,
+  guardReply,
   generateReply,
   isAutoSeller,
   cooldownLeft,
@@ -399,4 +480,6 @@ module.exports = {
   COOLDOWN_MS,
   DAILY_PAIR_LIMIT,
   INTENT_RULES,
+  FORBIDDEN_OUTPUT,
+  SCOPE,
 };

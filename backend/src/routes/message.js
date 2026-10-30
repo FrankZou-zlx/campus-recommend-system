@@ -39,7 +39,7 @@ async function scheduleAiReply({ buyerId, sellerId, content, productId }) {
       );
       console.log(
         `[ai-seller] 卖家#${sellerId} → 买家#${buyerId} 自动回复` +
-        `（意图=${r.intent} 引擎=${r.source} 置信度=${r.confidence}）：${r.content}`
+        `（意图=${r.intent} 问题域=${r.scope} 引擎=${r.source} 置信度=${r.confidence}）：${r.content}`
       );
     } catch (e) {
       console.error('[ai-seller] 自动回复失败：', e.message);
@@ -101,7 +101,8 @@ router.get('/talk/:userId', auth, async (req, res) => {
   });
 });
 
-// 我的会话列表（按最近联系人聚合）
+// 我的会话列表（按最近联系人聚合，附带该会话的未读条数）
+// 未读口径：to_id = 当前用户（即「我是接收方」）且 is_read = 0
 router.get('/contacts', auth, async (req, res) => {
   const uid = req.user.id;
   const rows = await query(
@@ -113,20 +114,38 @@ router.get('/contacts', auth, async (req, res) => {
             (SELECT created_at FROM message m3
                WHERE (m3.from_id=? AND m3.to_id=c.partner_id)
                   OR (m3.from_id=c.partner_id AND m3.to_id=?)
-               ORDER BY m3.created_at DESC, m3.id DESC LIMIT 1) AS last_time
+               ORDER BY m3.created_at DESC, m3.id DESC LIMIT 1) AS last_time,
+            (SELECT COUNT(*) FROM message m4
+               WHERE m4.to_id=? AND m4.from_id=c.partner_id AND m4.is_read=0) AS unread
      FROM (SELECT DISTINCT CASE WHEN m.from_id=? THEN m.to_id ELSE m.from_id END AS partner_id
            FROM message m WHERE m.from_id=? OR m.to_id=?) c
      JOIN user u ON u.id = c.partner_id
      ORDER BY last_time DESC`,
-    [uid, uid, uid, uid, uid, uid, uid]
+    [uid, uid, uid, uid, uid, uid, uid, uid]
   );
   res.json({ code: 0, data: rows });
 });
 
-// 标记已读
+/**
+ * 标记已读（只由「接收方」的打开会话动作触发）
+ * -----------------------------------------------------------------
+ * 已读语义：一条消息的 is_read 只表示「收件人是否已查看」。
+ * 因此这里固定写成 `to_id = 当前用户`：
+ *   - 接收方打开会话 → 命中自己收到且未读的行，置为已读；
+ *   - 发送方打开会话 → 他发出的消息 to_id 是对方，条件不成立，
+ *     一行都不会被更新，天然不会出现「自己看一遍就变已读」。
+ * 前端仅在会话中存在「发给我的未读消息」时才调用本接口。
+ */
 router.put('/read/:fromId', auth, async (req, res) => {
-  await query('UPDATE message SET is_read=1 WHERE to_id=? AND from_id=?', [req.user.id, req.params.fromId]);
-  res.json({ code: 0, msg: 'ok' });
+  const peerId = Number(req.params.fromId);
+  if (!peerId) return res.status(400).json({ code: 400, msg: '会话对象不合法' });
+  if (peerId === req.user.id) return res.json({ code: 0, msg: 'self', data: { updated: 0 } });
+
+  const r = await query(
+    'UPDATE message SET is_read=1 WHERE to_id=? AND from_id=? AND is_read=0',
+    [req.user.id, peerId]
+  );
+  res.json({ code: 0, msg: 'ok', data: { updated: (r && r.affectedRows) || 0 } });
 });
 
 // 查询某用户是否为 AI 卖家（商品详情页 / 会话头部显示用）
