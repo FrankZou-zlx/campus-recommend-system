@@ -1,5 +1,11 @@
+require('dotenv').config();
 const jwt = require('jsonwebtoken');
-const SECRET = process.env.JWT_SECRET || 'campus-mall-dev-secret-2026';
+
+// 签名密钥不设源码内默认值：缺失即启动失败，避免密钥随代码一起公开
+if (!process.env.JWT_SECRET) {
+  throw new Error('缺少环境变量 JWT_SECRET。本地请配置 backend/.env，服务器请检查 /etc/campus-mall/api.env');
+}
+const SECRET = process.env.JWT_SECRET;
 
 // 用户鉴权中间件：校验 Authorization: Bearer <token>
 function auth(req, res, next) {
