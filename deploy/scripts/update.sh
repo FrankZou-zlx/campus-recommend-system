@@ -200,6 +200,19 @@ if [ -f "$DST/backend/sql/migrate-ai-seller.js" ]; then
   rm -f /tmp/migrate-ai.log
 fi
 
+# 幂等迁移：管理员可禁用用户（user.status 字段）
+if [ -f "$DST/backend/sql/migrate-user-status.js" ]; then
+  c_info "执行幂等数据迁移（用户禁用状态字段）…"
+  if node "$DST/backend/sql/migrate-user-status.js" > /tmp/migrate-user-status.log 2>&1; then
+    sed 's/^/     /' /tmp/migrate-user-status.log
+    c_ok "用户禁用字段迁移完成"
+  else
+    printf '  \033[33m!\033[0m 用户禁用字段迁移失败，日志：\n'
+    tail -10 /tmp/migrate-user-status.log | sed 's/^/     /'
+  fi
+  rm -f /tmp/migrate-user-status.log
+fi
+
 # 幂等清理：下架自动验收脚本残留的测试商品（标题以「E2E验收测试商品」开头）
 if [ -f "$DST/backend/sql/migrate-cleanup-tests.js" ]; then
   node "$DST/backend/sql/migrate-cleanup-tests.js" > /tmp/migrate-clean.log 2>&1 && sed 's/^/     /' /tmp/migrate-clean.log

@@ -58,16 +58,32 @@ router.post('/send', auth, async (req, res) => {
 
   const toId = Number(to_id);
   const pid = Number(product_id) || 0;
+
+  // 收件人必须是真实存在且未被禁用的用户。
+  // 例外：to_id=0 是「回复平台管理员」，管理员不在 user 表里，放行。
+  if (toId !== 0) {
+    const targets = await query('SELECT id, status FROM `user` WHERE id=?', [toId]);
+    if (!targets.length) {
+      return res.status(404).json({ code: 404, msg: '收件人不存在' });
+    }
+    if (Number(targets[0].status) === 0) {
+      return res.status(403).json({ code: 403, msg: '对方账号已被禁用，暂时无法接收私信' });
+    }
+  }
+
   await query(
     'INSERT INTO message(from_id,to_id,content,sender_type,product_id) VALUES(?,?,?,0,?)',
     [req.user.id, toId, content, pid]
   );
 
+  // 只有「用户 → 用户」才可能触发 AI 卖家自动回复；回复平台管理员不参与该流程
   let ai = { pending: false, isAuto: false, reason: '' };
-  try {
-    ai = await scheduleAiReply({ buyerId: req.user.id, sellerId: toId, content, productId: pid });
-  } catch (e) {
-    console.error('[ai-seller] 触发判定失败：', e.message);
+  if (toId !== 0) {
+    try {
+      ai = await scheduleAiReply({ buyerId: req.user.id, sellerId: toId, content, productId: pid });
+    } catch (e) {
+      console.error('[ai-seller] 触发判定失败：', e.message);
+    }
   }
 
   res.json({
@@ -90,7 +106,13 @@ router.get('/talk/:userId', auth, async (req, res) => {
     'SELECT id, nickname, avatar, seller_mode FROM `user` WHERE id=?',
     [oid]
   );
-  const peer = peers.length ? peers[0] : null;
+  // oid=0 表示「平台管理员」会话：管理员不在 user 表里，单独造一个对端信息给前端
+  let peer;
+  if (oid === 0) {
+    peer = { id: 0, nickname: '平台管理员', avatar: '', seller_mode: 'manual' };
+  } else {
+    peer = peers.length ? peers[0] : null;
+  }
   res.json({
     code: 0,
     data: rows,
@@ -103,10 +125,16 @@ router.get('/talk/:userId', auth, async (req, res) => {
 
 // 我的会话列表（按最近联系人聚合，附带该会话的未读条数）
 // 未读口径：to_id = 当前用户（即「我是接收方」）且 is_read = 0
+// 兼容管理员会话：管理员发出的消息 from_id=0，user 表里没有 id=0 的行，
+// 所以这里用 LEFT JOIN，并把它显示成「平台管理员」。
 router.get('/contacts', auth, async (req, res) => {
   const uid = req.user.id;
   const rows = await query(
-    `SELECT c.partner_id AS contact_id, u.nickname, u.avatar, u.seller_mode,
+    `SELECT c.partner_id AS contact_id,
+            COALESCE(u.nickname, '平台管理员') AS nickname,
+            u.avatar,
+            COALESCE(u.seller_mode, 'manual') AS seller_mode,
+            (c.partner_id = 0) AS is_admin,
             (SELECT content FROM message m2
                WHERE (m2.from_id=? AND m2.to_id=c.partner_id)
                   OR (m2.from_id=c.partner_id AND m2.to_id=?)
@@ -119,7 +147,7 @@ router.get('/contacts', auth, async (req, res) => {
                WHERE m4.to_id=? AND m4.from_id=c.partner_id AND m4.is_read=0) AS unread
      FROM (SELECT DISTINCT CASE WHEN m.from_id=? THEN m.to_id ELSE m.from_id END AS partner_id
            FROM message m WHERE m.from_id=? OR m.to_id=?) c
-     JOIN user u ON u.id = c.partner_id
+     LEFT JOIN user u ON u.id = c.partner_id
      ORDER BY last_time DESC`,
     [uid, uid, uid, uid, uid, uid, uid, uid]
   );
@@ -137,8 +165,12 @@ router.get('/contacts', auth, async (req, res) => {
  * 前端仅在会话中存在「发给我的未读消息」时才调用本接口。
  */
 router.put('/read/:fromId', auth, async (req, res) => {
-  const peerId = Number(req.params.fromId);
-  if (!peerId) return res.status(400).json({ code: 400, msg: '会话对象不合法' });
+  const raw = req.params.fromId;
+  const peerId = Number(raw);
+  // 0 是合法值：表示「平台管理员」会话（管理员不在 user 表里，from_id 固定为 0）
+  if (raw === '' || !Number.isFinite(peerId) || peerId < 0) {
+    return res.status(400).json({ code: 400, msg: '会话对象不合法' });
+  }
   if (peerId === req.user.id) return res.json({ code: 0, msg: 'self', data: { updated: 0 } });
 
   const r = await query(

@@ -839,7 +839,7 @@
       const contacts = ref([]);
       const talks = ref([]);
       const content = ref('');
-      const curId = ref(0);
+      const curId = ref(null);      // null=还没选会话；0=平台管理员（管理员不在 user 表里，id 固定为 0）
       const curName = ref('');
       const curPid = ref(0);        // 当前会话关联的商品（AI 回复上下文）
       const aiSeller = ref(false);  // 对端是否为 AI 卖家（开启自动回复）
@@ -952,9 +952,9 @@
             </div>
           </el-card>
           <el-card style="flex:1;min-height:360px">
-            <template v-if="curId">
+            <template v-if="curId !== null">
               <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
-                <div><b>{{ curName }}</b><span v-if="aiSeller" class="ai-badge">AI</span></div>
+                <div><b>{{ curName }}</b><span v-if="aiSeller" class="ai-badge">AI</span><span v-if="curId===0" class="ai-badge" style="background:#2563eb">官方</span></div>
                 <div v-if="aiSeller" class="ai-tip">已开启 AI 自动回复</div>
               </div>
               <div ref="boxRef" style="height:240px;overflow:auto;background:#fff7ed;border-radius:8px;padding:10px">
@@ -1146,15 +1146,104 @@
       // 下拉切换管理模块：用户管理（默认，与数据看板同屏）/ 商品管理 / 推荐算法行为数据
       const charts = ref(null);
       const module = ref('users');
+      // 模块说明文案集中放这里，模板里就不用嵌套三层三元表达式
+      const moduleHint = computed(() => ({
+        users: '可禁用/启用账号，禁用后无法登录',
+        products: '点击按钮切换上下架，下架后前台不可见',
+        message: '向指定用户发送站内私信',
+        algo: '协同过滤的相似度与推荐依据'
+      }[module.value] || ''));
       const cf = ref(null);
       const cfLoading = ref(false);
+
+      // ---- 管理员私信用户 ----
+      // 收件人候选（下拉框数据源）、当前选中的用户、以及和 TA 的往来记录
+      const msgUsers = ref([]);
+      const msgToId = ref(null);
+      const msgContent = ref('');
+      const msgHistory = ref([]);
+      const msgSending = ref(false);
+
+      async function loadMsgUsers(keyword) {
+        // 不传关键字时后端返回最近 50 个用户，演示时随手挑一个即可
+        const tail = keyword ? '?keyword=' + encodeURIComponent(keyword) : '';
+        const d = await A('get', '/admin/message/users' + tail);
+        if (d.code === 0) msgUsers.value = d.data;
+      }
+
+      async function loadMsgHistory() {
+        if (!msgToId.value) { msgHistory.value = []; return; }
+        const d = await A('get', '/admin/message/history?to_id=' + msgToId.value);
+        if (d.code === 0) msgHistory.value = d.data;
+      }
+      watch(msgToId, () => loadMsgHistory());
+
+      async function sendMsg() {
+        const content = (msgContent.value || '').trim();
+        if (!msgToId.value) { ElMessage.warning('请先选择接收用户'); return; }
+        if (!content) { ElMessage.warning('请填写私信内容'); return; }
+        msgSending.value = true;
+        const d = await A('post', '/admin/message/send', { to_id: msgToId.value, content });
+        msgSending.value = false;
+        // 失败提示由请求层统一弹出，这里只处理成功后的收尾
+        if (d.code !== 0) return;
+        msgContent.value = '';
+        ElMessage.success(d.msg || '私信已发送');
+        loadMsgHistory();
+      }
+
+      async function toggleUser(row) {
+        const next = row.status === 1 ? 0 : 1;
+        const name = row.nickname || row.username;
+        const tip = next === 0
+          ? `确定禁用「${name}」？禁用后该账号无法登录，已登录的会话也会立即失效。该用户的商品与订单不会被删除。`
+          : `确定恢复「${name}」的正常使用？恢复后可以立即登录。`;
+        try {
+          await ElMessageBox.confirm(tip, next === 0 ? '禁用用户' : '启用用户', {
+            type: next === 0 ? 'warning' : 'info',
+            confirmButtonText: next === 0 ? '确定禁用' : '确定启用',
+            cancelButtonText: '取消'
+          });
+        } catch (e) {
+          return;   // 点了取消或关闭，不发起请求
+        }
+        const d = await A('put', '/admin/user/' + row.id + '/status', { status: next });
+        if (d.code === 0) {
+          ElMessage.success(d.msg || '已更新');
+          loadAll();
+        }
+      }
+
+      async function toggleProduct(row) {
+        const next = row.status === 1 ? 0 : 1;
+        const tip = next === 0
+          ? `确定下架「${row.title}」？下架后该商品在首页、搜索、推荐、收藏夹中都不再出现，直链也无法打开。`
+          : `确定重新上架「${row.title}」？上架后立即恢复在前台展示。`;
+        try {
+          await ElMessageBox.confirm(tip, next === 0 ? '下架商品' : '重新上架', {
+            type: next === 0 ? 'warning' : 'info',
+            confirmButtonText: next === 0 ? '确定下架' : '确定上架',
+            cancelButtonText: '取消'
+          });
+        } catch (e) {
+          return;
+        }
+        const d = await A('put', '/admin/product/' + row.id + '/status', { status: next });
+        if (d.code === 0) {
+          ElMessage.success(d.msg || '已更新');
+          loadAll();
+        }
+      }
       async function loadCF() {
         cfLoading.value = true;
         const d = await A('get', '/admin/cf-insight');
         if (d.code === 0) cf.value = d.data;
         cfLoading.value = false;
       }
-      watch(module, (m) => { if (m === 'algo' && !cf.value) loadCF(); });
+      watch(module, (m) => {
+        if (m === 'algo' && !cf.value) loadCF();
+        if (m === 'message' && !msgUsers.value.length) loadMsgUsers();
+      });
 
       async function adminLogin() {
         const aname = noSpace(form.username);
@@ -1184,12 +1273,12 @@
         const it = await A('get', '/admin/interactions'); if (it.code === 0) interactions.value = it.data;
         const ch = await A('get', '/admin/charts'); if (ch.code === 0) charts.value = ch.data;
       }
-      async function toggleProduct(p) {
-        await A('put', '/admin/product/' + p.id + '/status', { status: p.status === 1 ? 0 : 1 });
-        loadAll();
-      }
       onMounted(() => { if (logged.value) loadAll(); });
-      return { logged, isNormalUser, adminName, form, adminLogin, logout, switchToAdmin, stats, users, products, interactions, toggleProduct, go, module, cf, cfLoading, charts, money };
+      return {
+        logged, isNormalUser, adminName, form, adminLogin, logout, switchToAdmin,
+        stats, users, products, interactions, toggleProduct, go, module, moduleHint, cf, cfLoading, charts, money,
+        toggleUser, msgUsers, msgToId, msgContent, msgHistory, msgSending, sendMsg, loadMsgUsers, loadMsgHistory
+      };
     },
     template: `
       <div class="container">
@@ -1241,9 +1330,10 @@
             <el-select v-model="module" style="width:230px">
               <el-option label="用户管理" value="users" />
               <el-option label="商品管理" value="products" />
+              <el-option label="私信用户" value="message" />
               <el-option label="推荐算法行为数据" value="algo" />
             </el-select>
-            <span class="at-hint">{{ module==='users' ? '与上方数据看板同屏查看' : (module==='products' ? '点击按钮切换上下架' : '协同过滤的相似度与推荐依据') }}</span>
+            <span class="at-hint">{{ moduleHint }}</span>
             <div class="spacer"></div>
             <el-button @click="go('notice')">发布公告</el-button>
             <el-button text type="danger" @click="logout">退出登录</el-button>
@@ -1256,7 +1346,21 @@
               <el-table-column prop="username" label="账号" />
               <el-table-column prop="nickname" label="昵称" />
               <el-table-column prop="email" label="邮箱" />
-              <el-table-column prop="role" label="角色" width="80" />
+              <el-table-column label="角色" width="90">
+                <template #default="{row}">{{ row.role===1 ? '卖家' : '普通用户' }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="90">
+                <template #default="{row}">
+                  <el-tag size="small" :type="row.status===0?'danger':'success'">{{ row.status===0 ? '已禁用' : '正常' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="100">
+                <template #default="{row}">
+                  <el-button size="small" :type="row.status===0?'success':'danger'" plain @click="toggleUser(row)">
+                    {{ row.status===0 ? '启用' : '禁用' }}
+                  </el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </template>
 
@@ -1274,8 +1378,56 @@
             </el-table>
           </template>
 
-          <!-- ③ 推荐算法行为数据（协同过滤怎么算的，摊开看） -->
-          <template v-else>
+          <!-- ③ 私信用户 -->
+          <template v-else-if="module==='message'">
+            <div class="cf-note">
+              管理员发出的私信会出现在该用户的「消息」页面，会话名称显示为「平台管理员」，用户可以直接回复。
+              内容同样要经过敏感词校验；对已禁用的用户仍可发送（留痕需要），但对方要等账号恢复后才能看到。
+            </div>
+
+            <div class="row" style="align-items:flex-end;gap:12px;margin:14px 0">
+              <div style="flex:0 0 320px">
+                <div class="cf-lab2">选择接收用户</div>
+                <el-select v-model="msgToId" filterable remote :remote-method="loadMsgUsers"
+                           placeholder="输入账号或昵称搜索" style="width:100%">
+                  <el-option v-for="u in msgUsers" :key="u.id"
+                             :label="(u.nickname || u.username) + '（' + u.username + ' #' + u.id + '）'"
+                             :value="u.id">
+                    <span>{{ u.nickname || u.username }}</span>
+                    <span style="float:right;color:#999;font-size:12px">
+                      {{ u.username }} #{{ u.id }}<span v-if="u.status===0"> · 已禁用</span>
+                    </span>
+                  </el-option>
+                </el-select>
+              </div>
+              <div style="flex:1;min-width:280px">
+                <div class="cf-lab2">私信内容（不超过 500 字）</div>
+                <el-input v-model="msgContent" type="textarea" :rows="3" maxlength="500" show-word-limit
+                          placeholder="例如：您发布的商品因涉嫌违规已被下架，请修改后重新上架。" />
+              </div>
+              <el-button type="primary" :loading="msgSending" @click="sendMsg">发送私信</el-button>
+            </div>
+
+            <div class="cf-sub-title">与该用户的往来记录（越往下越新）</div>
+            <el-table v-if="msgHistory.length" :data="msgHistory" border size="small" height="300">
+              <el-table-column prop="created_at" label="时间" width="150" />
+              <el-table-column label="发送方" width="120">
+                <template #default="{row}">{{ row.from_id === 0 ? '平台管理员' : '用户' }}</template>
+              </el-table-column>
+              <el-table-column prop="content" label="内容" />
+              <el-table-column label="是否已读" width="100">
+                <template #default="{row}">
+                  <el-tag size="small" :type="row.is_read===1?'success':'info'">{{ row.is_read===1 ? '已读' : '未读' }}</el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-else class="empty" style="padding:24px 0;font-size:13px">
+              {{ msgToId ? '与 TA 还没有私信往来' : '先在上方选择一位用户' }}
+            </div>
+          </template>
+
+          <!-- ④ 推荐算法行为数据（协同过滤怎么算的，摊开看） -->
+          <template v-else-if="module==='algo'">
             <div v-if="cfLoading" class="empty">正在根据行为数据计算商品相似度…</div>
             <template v-else-if="cf">
               <div class="cf-note">

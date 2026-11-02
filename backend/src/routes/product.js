@@ -79,6 +79,11 @@ router.get('/detail/:id', auth, async (req, res) => {
      LEFT JOIN user u ON p.seller_id=u.id WHERE p.id=?`, [id]
   );
   if (!p) return res.status(404).json({ code: 404, msg: '商品不存在' });
+  // 已被管理员下架的商品对前台一律不可见：即使拿到直链也不能打开详情。
+  // 提示语与「不存在」保持同一口径，避免通过不同的报错反推出商品只是被下架。
+  if (Number(p.status) !== 1) {
+    return res.status(404).json({ code: 404, msg: '商品不存在或已下架' });
+  }
   const images = await query('SELECT url FROM product_image WHERE product_id=?', [id]);
   p.images = images.map(i => i.url);
   // 登录用户记录浏览行为

@@ -65,6 +65,7 @@
       email: i === 1 ? 'user001@campus.edu' : '',
       phone: i === 1 ? '13800000001' : '',
       role: 'user',
+      status: 1,          // 1=正常 0=被管理员禁用（演示版同样可禁）
       seller_mode: AUTO_SELLERS.indexOf(i) >= 0 ? 'auto' : 'manual'
     });
   }
@@ -193,14 +194,19 @@
     const basis = [...basisSet];
     // 冷启动：无行为 -> 返回全站热门（按行为数）
     if (!pos.size) {
+      // 冷启动走全站热门，但下架商品不参与推荐
       const pop = Object.keys(itemUsers).map(pid => ({ pid: Number(pid), c: itemUsers[pid].size }))
-        .sort((a, b) => b.c - a.c).slice(0, limit).map(x => productById(x.pid)).filter(Boolean);
+        .sort((a, b) => b.c - a.c)
+        .map(x => productById(x.pid))
+        .filter(p => p && Number(p.status) === 1)
+        .slice(0, limit);
       return { list: pop, basis: [] };
     }
     // 候选物品相似度聚合（与目标用户已交互物品的加权余弦相似度之和，公式同后端）
     const cand = {};
     PRODUCTS.forEach(p => {
       if (pos.has(p.id)) return;
+      if (Number(p.status) !== 1) return;   // 下架商品不进候选池
       let s = 0;
       pos.forEach(pid => { s += cosineW(itemUserScore[pid], itemUserScore[p.id]); });
       if (s > 0) cand[p.id] = s;
@@ -210,6 +216,7 @@
     Object.keys(cand).forEach(pid => { final[pid] = cand[pid]; });
     PRODUCTS.forEach(p => {
       if (pos.has(p.id)) return;
+      if (Number(p.status) !== 1) return;   // 下架商品也不参与类目加权
       const aff = catAff[p.category_id] || 0;
       if (aff > 0 || final[p.id] !== undefined) final[p.id] = (final[p.id] || 0) + aff * 0.4;
     });
@@ -523,9 +530,23 @@
 
   // ---------- 路由分发 ----------
   async function routeApi(method, url, payload, isAdmin) {
-    const clean = (url || '').split('?')[0].replace(/^\//, '');
+    const rawUrl = url || '';
+    const clean = rawUrl.split('?')[0].replace(/^\//, '');
     const parts = clean.split('/');
-    const params = (method === 'get' && payload && payload.params) ? payload.params : {};
+    // 查询串有两种来源：直接拼在 url 上（?to_id=5），或通过 params 传。
+    // 真实 axios 两种都支持，这里也一并解析，否则带查询串的 GET 会拿不到参数。
+    const query = {};
+    const qi = rawUrl.indexOf('?');
+    if (qi >= 0) {
+      rawUrl.slice(qi + 1).split('&').forEach((kv) => {
+        if (!kv) return;
+        const eq = kv.indexOf('=');
+        const k = decodeURIComponent(eq < 0 ? kv : kv.slice(0, eq));
+        const v = eq < 0 ? '' : decodeURIComponent(kv.slice(eq + 1));
+        query[k] = v;
+      });
+    }
+    const params = Object.assign({}, query, (method === 'get' && payload && payload.params) ? payload.params : {});
     const body = (method !== 'get') ? payload : {};
 
     // === 认证（账号一律去空格：空格不算有效字符） ===
@@ -545,6 +566,8 @@
       }
       // 与真实后端一致：不区分账号错还是密码错，统一提示
       if (!u) return { code: 1, msg: '账号或密码不正确' };
+      // 被管理员禁用的账号禁止登录（放在密码校验之后，避免反推出账号状态）
+      if (Number(u.status) === 0) return { code: 403, msg: '该账号已被管理员禁用，请联系管理员' };
       return { code: 0, data: { token: makeToken({ id: u.id, username: u.username, role: 'user' }), user: u } };
     }
     if (parts[0] === 'auth' && parts[1] === 'register') {
@@ -578,7 +601,8 @@
 
     // === 商品 ===
     if (parts[0] === 'product' && parts[1] === 'list') {
-      let list = PRODUCTS.slice();
+      // 与后端一致：只有在售（status=1）的商品会出现在列表里，下架的一律不返回
+      let list = PRODUCTS.filter((p) => Number(p.status) === 1);
       if (params.category_id) list = list.filter(p => p.category_id === Number(params.category_id));
       if (params.keyword) {
         // 多个关键词（空格/逗号分隔）：命中任意一个即返回；命中的关键词越多排得越靠前（全命中优先）
@@ -603,6 +627,8 @@
     if (parts[0] === 'product' && parts[1] === 'detail') {
       const p = productById(parts[2]);
       if (!p) return { code: 1, msg: '商品不存在' };
+      // 被管理员下架的商品对前台不可见，直链也打不开（与后端同口径）
+      if (Number(p.status) !== 1) return { code: 1, msg: '商品不存在或已下架' };
       const s = userById(p.seller_id);
       // 附带卖家客服模式，前端据此显示「AI 自动回复」标识
       return { code: 0, data: Object.assign({}, p, { seller_mode: s ? s.seller_mode : 'manual' }) };
@@ -804,9 +830,11 @@
         const peer = m.from_id === u.id ? m.to_id : m.from_id;
         if (!peers[peer]) {
           const pu = userById(peer);
+          // peer=0 表示「平台管理员」：管理员不在 USERS 里，单独给一个显示名
           peers[peer] = {
             contact_id: peer,
-            nickname: (pu || {}).nickname || ('用户' + peer),
+            nickname: peer === 0 ? '平台管理员' : ((pu || {}).nickname || ('用户' + peer)),
+            is_admin: peer === 0,
             seller_mode: pu ? (pu.seller_mode || 'manual') : 'manual',
             last_msg: m.content,
             last_time: m.created_at,
@@ -829,10 +857,14 @@
         .filter(m => (m.from_id === u.id && m.to_id === peer) || (m.from_id === peer && m.to_id === u.id))
         .sort((a, b) => (a.created_at - b.created_at) || ((a.id || 0) - (b.id || 0)));
       const pu = userById(peer);
+      // peer=0 → 平台管理员会话，没有对应的 USERS 记录
+      const peerInfo = peer === 0
+        ? { id: 0, nickname: '平台管理员', avatar: '', seller_mode: 'manual' }
+        : (pu ? { id: pu.id, nickname: pu.nickname, avatar: pu.avatar, seller_mode: pu.seller_mode || 'manual' } : null);
       return {
         code: 0,
         data: list,
-        peer: pu ? { id: pu.id, nickname: pu.nickname, avatar: pu.avatar, seller_mode: pu.seller_mode || 'manual' } : null,
+        peer: peerInfo,
         ai_seller: !!(pu && pu.seller_mode === 'auto')
       };
     }
@@ -840,7 +872,8 @@
       // 与后端同语义：只由接收方打开会话时触发，仅更新「发给我的未读」
       const u = curUser(false); if (!u) return { code: 401 };
       const peer = Number(parts[2]);
-      if (!peer) return { code: 400, msg: '会话对象不合法' };
+      // 0 是合法值（平台管理员会话），不能用 !peer 判断
+      if (!Number.isFinite(peer) || peer < 0) return { code: 400, msg: '会话对象不合法' };
       if (peer === u.id) return { code: 0, data: { updated: 0 } };
       const list = getMessages();
       let n = 0;
@@ -854,6 +887,12 @@
       const u = curUser(false); if (!u) return { code: 401 };
       const toId = Number(body.to_id);
       const pid = Number(body.product_id) || 0;
+      // 收件人必须存在；to_id=0 是回复平台管理员，放行
+      if (toId !== 0) {
+        const target = userById(toId);
+        if (!target) return { code: 404, msg: '收件人不存在' };
+        if (Number(target.status) === 0) return { code: 403, msg: '对方账号已被禁用，暂时无法接收私信' };
+      }
       const msgs = getMessages();
       msgs.push({ id: msgs.length + 1, from_id: u.id, to_id: toId, content: body.content, sender_type: 0, product_id: pid, is_read: 0, created_at: Date.now() });
       setMessages(msgs);
@@ -938,7 +977,82 @@
         return { code: 0, data: { byCategory, byDay } };
       }
       if (parts[0] === 'admin' && parts[1] === 'product' && parts[2] && parts[3] === 'status') {
-        const p = productById(parts[2]); if (p) p.status = Number(body.status); return { code: 0 };
+        const p = productById(parts[2]);
+        if (!p) return { code: 404, msg: '商品不存在或已被删除' };
+        const next = Number(body.status) === 0 ? 0 : 1;
+        p.status = next;
+        return { code: 0, msg: (next === 0 ? '已下架「' : '已上架「') + p.title + '」', data: { id: p.id, status: next } };
+      }
+      // 禁用 / 启用用户：只改状态，不动商品与订单，与后端口径一致
+      if (parts[0] === 'admin' && parts[1] === 'user' && parts[2] && parts[3] === 'status') {
+        const t = userById(Number(parts[2]));
+        if (!t) return { code: 404, msg: '用户不存在' };
+        const next = Number(body.status) === 0 ? 0 : 1;
+        t.status = next;
+        return {
+          code: 0,
+          msg: (next === 0 ? '已禁用「' : '已启用「') + (t.nickname || t.username) + '」',
+          data: { id: t.id, status: next }
+        };
+      }
+      // 管理员私信：收件人候选
+      if (parts[0] === 'admin' && parts[1] === 'message' && parts[2] === 'users') {
+        const kw = String((params && params.keyword) || '').trim();
+        const hit = USERS.filter((u) => !kw
+          || u.username.indexOf(kw) >= 0
+          || String(u.nickname).indexOf(kw) >= 0);
+        const data = hit.slice(-50).reverse().map((u) => ({
+          id: u.id,
+          username: u.username,
+          nickname: u.nickname,
+          status: Number(u.status) === 0 ? 0 : 1
+        }));
+        return { code: 0, data };
+      }
+      // 管理员私信：发送（from_id 固定 0、sender_type=2，用户端显示为「平台管理员」）
+      if (parts[0] === 'admin' && parts[1] === 'message' && parts[2] === 'send') {
+        const toId = Number(body && body.to_id);
+        const content = String((body && body.content) || '').trim();
+        if (!toId) return { code: 1, msg: '请选择接收用户' };
+        if (!content) return { code: 1, msg: '请填写私信内容' };
+        if (content.length > 500) return { code: 1, msg: '私信内容不能超过 500 字（当前 ' + content.length + ' 字）' };
+        const target = userById(toId);
+        if (!target) return { code: 404, msg: '接收用户不存在' };
+        const list = getMessages();
+        list.push({
+          id: list.length + 1,
+          from_id: 0,
+          to_id: toId,
+          content,
+          sender_type: 2,
+          product_id: 0,
+          is_read: 0,
+          created_at: Date.now()
+        });
+        setMessages(list);
+        return {
+          code: 0,
+          msg: Number(target.status) === 0 ? '已发送，但该用户已被禁用，登录后才能看到' : '私信已发送',
+          data: { to_id: target.id, nickname: target.nickname, disabled: Number(target.status) === 0 }
+        };
+      }
+      // 管理员私信：与该用户的往来记录
+      if (parts[0] === 'admin' && parts[1] === 'message' && parts[2] === 'history') {
+        const toId = Number((params && params.to_id) || 0);
+        if (!toId) return { code: 1, msg: '请指定用户' };
+        const data = getMessages()
+          .filter((m) => (m.from_id === 0 && m.to_id === toId) || (m.from_id === toId && m.to_id === 0))
+          .sort((a, b) => a.created_at - b.created_at)
+          .map((m) => ({
+            id: m.id,
+            from_id: m.from_id,
+            to_id: m.to_id,
+            content: m.content,
+            sender_type: m.sender_type,
+            is_read: m.is_read,
+            created_at: fmtDate(new Date(m.created_at))
+          }));
+        return { code: 0, data };
       }
       if (parts[0] === 'admin' && parts[1] === 'notice' && method === 'post') {
         const title = String((body && body.title) || '').trim();

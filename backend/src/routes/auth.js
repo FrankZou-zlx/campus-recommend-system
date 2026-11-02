@@ -53,6 +53,11 @@ router.post('/login', async (req, res) => {
     const u = users[0];
     if (!bcrypt.compareSync(password || '', u.password))
       return res.status(400).json({ code: 400, msg: '账号或密码不正确' });
+    // 被管理员禁用的账号禁止登录。
+    // 放在密码校验之后：不知道密码的人无法通过这条提示反推出「这个账号被处理过」。
+    if (Number(u.status) === 0) {
+      return res.status(403).json({ code: 403, msg: '该账号已被管理员禁用，请联系管理员' });
+    }
     const token = sign({ id: u.id, role: u.role });
     res.json({
       code: 0, msg: '登录成功',
