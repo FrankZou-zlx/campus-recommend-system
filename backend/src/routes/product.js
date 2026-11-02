@@ -42,7 +42,9 @@ async function recordInteraction(userId, productId, type, score) {
 // 商品列表（公开，支持分类/关键词/分页）
 router.get('/list', async (req, res) => {
   const { category_id, keyword, page = 1, size = 12 } = req.query;
-  const where = ['status=1'];
+  // 必须写 p.status：user 表在本查询里也有 status 列（1=正常 0=禁用），
+  // 裸写 status 会让 MySQL 报 "Column 'status' in where clause is ambiguous"
+  const where = ['p.status=1'];
   const params = [];
   if (category_id) { where.push('p.category_id=?'); params.push(category_id); }
   // 多个关键词（空格/逗号分隔）：命中任意一个即返回；命中的关键词越多排得越靠前（全命中优先）
