@@ -1,3 +1,11 @@
+/**
+ * 数据库连接池
+ * ---------------------------------------------------------------------------
+ * 全项目只有这一个入口，所有 SQL 都通过 query() 执行。
+ * 注意：mysql2 的 query() 返回 [行数组, 字段信息]，这里已经把字段信息丢掉，
+ * 上层拿到的直接就是行数组 —— 判断「有没有查到」时用 rows.length，
+ * 解构出的单行对象则用 if (!row)，不要对单行对象取 .length。
+ */
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 
@@ -14,12 +22,19 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME || 'campus_mall',
   waitForConnections: true,
   connectionLimit: 10,
-  charset: 'utf8mb4'
+  charset: 'utf8mb4',
 });
 
-// 统一查询助手：返回 [rows, fields]
+/**
+ * 执行一条 SQL 并返回结果行。
+ *
+ * @param {string} sql 带 ? 占位符的 SQL，不要用字符串拼接防止注入
+ * @param {Array} params 占位符对应的参数
+ * @returns {Promise<Array>} SELECT 返回行数组，增删改返回影响行信息
+ */
 async function query(sql, params) {
-  const [rows] = await pool.query(sql, params || []);
+  const result = await pool.query(sql, params || []);
+  const rows = result[0];
   return rows;
 }
 
