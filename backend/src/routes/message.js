@@ -52,12 +52,20 @@ async function scheduleAiReply({ buyerId, sellerId, content, productId }) {
 // 发送私信（若收件人是 AI 卖家，将自动触发一条 AI 回复）
 router.post('/send', auth, async (req, res) => {
   const { to_id, content, product_id } = req.body;
-  if (!to_id || !content) return res.status(400).json({ code: 400, msg: '收件人和内容必填' });
+  // 注意 to_id=0 是合法值（回复平台管理员），不能用 !to_id 判断，
+  // 缺失/null/空串才是真的没填。
+  if (to_id === undefined || to_id === null || to_id === '') {
+    return res.status(400).json({ code: 400, msg: '收件人和内容必填' });
+  }
+  if (!content) return res.status(400).json({ code: 400, msg: '收件人和内容必填' });
   const se = sensitiveError(content, '私信内容');
   if (se) return res.status(400).json({ code: 400, msg: se });
 
   const toId = Number(to_id);
   const pid = Number(product_id) || 0;
+  if (!Number.isFinite(toId) || toId < 0) {
+    return res.status(400).json({ code: 400, msg: '收件人不合法' });
+  }
 
   // 收件人必须是真实存在且未被禁用的用户。
   // 例外：to_id=0 是「回复平台管理员」，管理员不在 user 表里，放行。
