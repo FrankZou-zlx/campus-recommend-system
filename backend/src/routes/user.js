@@ -17,13 +17,31 @@ function phoneError(phone, required) {
 }
 
 // 获取当前用户资料
+// seller_mode 一并返回：个人中心要靠它渲染「AI 自动回复」开关的当前状态
 router.get('/profile', auth, async (req, res) => {
   const rows = await query(
-    'SELECT id,username,nickname,avatar,email,phone,role,created_at FROM user WHERE id=?',
+    'SELECT id,username,nickname,avatar,email,phone,role,seller_mode,created_at FROM user WHERE id=?',
     [req.user.id]
   );
   if (!rows.length) return res.status(404).json({ code: 404, msg: '用户不存在' });
   res.json({ code: 0, data: rows[0] });
+});
+
+// 开关 AI 自动回复（本人操作，改自己的 seller_mode）
+// auto   = AI 代答：买家发来私信时由 ai-seller 服务自动回复
+// manual = 自己回：买家发来私信后不会触发自动回复
+router.put('/seller-mode', auth, async (req, res) => {
+  const mode = String((req.body && req.body.mode) || '').trim();
+  if (mode !== 'auto' && mode !== 'manual') {
+    return res.status(400).json({ code: 400, msg: '参数不合法，只能是 auto 或 manual' });
+  }
+  // 只允许在 auto / manual 两个值之间切换，不接受其他任何字符串
+  await query('UPDATE user SET seller_mode=? WHERE id=?', [mode, req.user.id]);
+  res.json({
+    code: 0,
+    msg: mode === 'auto' ? '已开启 AI 自动回复' : '已关闭 AI 自动回复',
+    data: { seller_mode: mode }
+  });
 });
 
 // 更新资料

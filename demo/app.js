@@ -994,10 +994,16 @@
       const addrForm = reactive({ name: '', phone: '', detail: '', is_default: false });
       const profileTip = computed(() => phoneTipOf(profile.phone));
       const addrPhoneTip = computed(() => phoneTipOf(addrForm.phone));
+      // AI 自动回复开关：seller_mode = 'auto' 时，买家发来的私信由 AI 代答
+      const sellerMode = ref('manual');
+      const aiOn = computed(() => sellerMode.value === 'auto');
       async function load() {
         if (!requireLogin()) return;
         const d = await U('get', '/user/profile');
-        if (d.code === 0) Object.assign(profile, d.data);
+        if (d.code === 0) {
+          Object.assign(profile, d.data);
+          sellerMode.value = d.data.seller_mode === 'auto' ? 'auto' : 'manual';
+        }
         const a = await U('get', '/user/address');
         if (a.code === 0) addresses.value = a.data;
       }
@@ -1006,6 +1012,16 @@
         if (cp && !cp.ok) { ElMessage.warning(cp.msg); return; }
         const d = await U('put', '/user/profile', { ...profile });
         if (d.code === 0) ElMessage.success('已保存');
+      }
+      // 返回 Promise：请求成功才让开关翻转，失败就停在原位，不会出现「显示已开启其实没生效」
+      function toggleAi() {
+        const next = aiOn.value ? 'manual' : 'auto';
+        return U('put', '/user/seller-mode', { mode: next }).then((d) => {
+          if (d.code !== 0) return false;
+          sellerMode.value = (d.data && d.data.seller_mode) || next;
+          ElMessage.success(d.msg || '设置已更新');
+          return sellerMode.value === next;
+        });
       }
       function openAddr() { Object.assign(addrForm, { name: '', phone: '', detail: '', is_default: false }); addrVisible.value = true; }
       // 保存前逐项拦下来，并把原因说清楚（不让人对着没反应的按钮发懵）
@@ -1019,7 +1035,7 @@
       }
       async function delAddr(id) { await U('delete', '/user/address/' + id); load(); }
       onMounted(load);
-      return { profile, addresses, addrVisible, addrForm, save, openAddr, saveAddr, delAddr, profileTip, addrPhoneTip, digitsOnly };
+      return { profile, addresses, addrVisible, addrForm, save, openAddr, saveAddr, delAddr, profileTip, addrPhoneTip, digitsOnly, sellerMode, aiOn, toggleAi };
     },
     template: `
       <div class="container" style="max-width:640px">
@@ -1030,6 +1046,20 @@
           <el-input v-model="profile.phone" placeholder="手机号（11 位）" style="margin-bottom:12px" @input="profile.phone = digitsOnly($event)" />
           <div v-if="profileTip" class="field-hint" :class="'is-' + profileTip.level" style="margin-top:-8px">{{ profileTip.msg }}</div>
           <el-button type="primary" @click="save">保存资料</el-button>
+        </el-card>
+        <div class="section-title"><span class="bar"></span>AI 自动回复</div>
+        <el-card>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div>
+              <div style="font-weight:600">让 AI 帮我回复买家私信</div>
+              <div style="color:#909399;font-size:13px;margin-top:4px">
+                开启后，买家在你的商品页点「私信卖家」发来消息时，系统会自动以你的身份回复价格、库存、成色、面交等问题，回复气泡会标注「AI」。你随时可以关闭。
+              </div>
+            </div>
+            <el-switch :model-value="aiOn" :before-change="toggleAi" active-text="已开启" inactive-text="已关闭" />
+          </div>
+          <div v-if="aiOn" class="ai-tip" style="margin-top:10px">当前已开启：买家发来的咨询会自动回复，你的商品页和会话里会显示 AI 标识。</div>
+          <div v-else class="field-hint" style="margin-top:10px">当前为手动回复：买家消息会进入「消息」页等你亲自回复。</div>
         </el-card>
         <div class="section-title"><span class="bar"></span>收货地址</div>
         <el-card>

@@ -55,7 +55,14 @@
 
   // ---------- 生成用户（120） ----------
   // 其中若干为「AI 卖家」（seller_mode='auto'）：买家私信时会自动回复
+  // 用户在「个人中心」手动切换过的开关存在 localStorage 里，重新加载后要覆盖默认值
   const AUTO_SELLERS = [2, 3, 4, 5, 6];
+  const SELLER_MODE_KEY = 'demo_seller_mode';
+  let sellerModeOverride = {};
+  try {
+    const raw = localStorage.getItem(SELLER_MODE_KEY);
+    sellerModeOverride = raw ? (JSON.parse(raw) || {}) : {};
+  } catch (e) { sellerModeOverride = {}; }
   const USERS = [];
   for (let i = 1; i <= 120; i++) {
     USERS.push({
@@ -66,7 +73,7 @@
       phone: i === 1 ? '13800000001' : '',
       role: 'user',
       status: 1,          // 1=正常 0=被管理员禁用（演示版同样可禁）
-      seller_mode: AUTO_SELLERS.indexOf(i) >= 0 ? 'auto' : 'manual'
+      seller_mode: sellerModeOverride[i] || (AUTO_SELLERS.indexOf(i) >= 0 ? 'auto' : 'manual')
     });
   }
   const userById = (id) => USERS.find(u => u.id === id) || null;
@@ -811,7 +818,18 @@
       const u = curUser(false); if (!u) return { code: 401 };
       const base = userById(u.id) || {};
       const reg = getUsers()[u.username] || {};
-      return { code: 0, data: { id: u.id, username: u.username, nickname: reg.nickname || base.nickname || u.username, email: reg.email || base.email || '', phone: reg.phone || base.phone || '' } };
+      return { code: 0, data: { id: u.id, username: u.username, nickname: reg.nickname || base.nickname || u.username, email: reg.email || base.email || '', phone: reg.phone || base.phone || '', seller_mode: base.seller_mode || 'manual' } };
+    }
+    // AI 自动回复开关：写入内存 + localStorage，刷新后仍然生效
+    if (parts[0] === 'user' && parts[1] === 'seller-mode' && method === 'put') {
+      const u = curUser(false); if (!u) return { code: 401 };
+      const mode = String((body && body.mode) || '');
+      if (mode !== 'auto' && mode !== 'manual') return { code: 1, msg: '参数不合法，只能是 auto 或 manual' };
+      const self = userById(u.id);
+      if (self) self.seller_mode = mode;
+      sellerModeOverride[u.id] = mode;
+      LS.set(SELLER_MODE_KEY, sellerModeOverride);
+      return { code: 0, msg: mode === 'auto' ? '已开启 AI 自动回复' : '已关闭 AI 自动回复', data: { seller_mode: mode } };
     }
     if (parts[0] === 'user' && parts[1] === 'profile' && method === 'put') {
       const u = curUser(false); if (!u) return { code: 401 };
