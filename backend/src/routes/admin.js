@@ -261,7 +261,8 @@ router.get('/charts', adminAuth, async (req, res) => {
     }
     res.json({ code: 0, data: { byCategory: byCat.map(r => ({ name: r.name, cnt: Number(r.cnt), amount: Number(r.amount) })), byDay } });
   } catch (e) {
-    res.status(500).json({ code: 500, msg: '图表数据加载失败: ' + e.message });
+    console.error('[admin/charts] 失败：', e.message);
+    res.status(500).json({ code: 500, msg: '图表数据加载失败' });
   }
 });
 
@@ -271,7 +272,8 @@ router.get('/cf-insight', adminAuth, async (req, res) => {
     const data = await cfInsight(req.query.user_id);
     res.json({ code: 0, data });
   } catch (e) {
-    res.status(500).json({ code: 500, msg: '算法数据加载失败: ' + e.message });
+    console.error('[admin/cf-insight] 失败：', e.message);
+    res.status(500).json({ code: 500, msg: '算法数据加载失败' });
   }
 });
 

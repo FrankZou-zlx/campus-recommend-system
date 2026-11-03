@@ -36,7 +36,8 @@ router.post('/register', async (req, res) => {
     );
     res.json({ code: 0, msg: '注册成功' });
   } catch (e) {
-    res.status(500).json({ code: 500, msg: '注册失败: ' + e.message });
+    console.error('[auth/register] 失败：', e.message);
+    res.status(500).json({ code: 500, msg: '注册失败，请稍后重试' });
   }
 });
 
@@ -64,7 +65,8 @@ router.post('/login', async (req, res) => {
       data: { token, user: { id: u.id, username: u.username, nickname: u.nickname, role: u.role, avatar: u.avatar } }
     });
   } catch (e) {
-    res.status(500).json({ code: 500, msg: '登录失败: ' + e.message });
+    console.error('[auth/login] 失败：', e.message);
+    res.status(500).json({ code: 500, msg: '登录失败，请稍后重试' });
   }
 });
 

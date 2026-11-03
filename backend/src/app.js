@@ -7,6 +7,10 @@
  * 否则前面的中间件出错时没有兜底，一条 SQL 写错就会让整个服务退出。
  */
 const express = require('express');
+// Express 4 不会捕获 async 处理器里抛出的异常：一旦某条 SQL 报错，
+// 请求既不会返回 500 也不会断开，客户端只能一直等到超时（表现为「页面一直转圈」）。
+// 这一行把 async 路由的 rejection 转交给下面的错误中间件。
+require('express-async-errors');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
@@ -57,14 +61,19 @@ app.use((req, res) => {
   });
 });
 
-// 兜底二：路由内部抛出的异常。响应头已发出时交回 Express 默认处理，避免二次写入
+// 兜底二：路由内部抛出的异常。
+// 业务错误（主动标记 isBusiness，例如「库存不足」）可以把 message 直接给用户；
+// SQL 报错、依赖异常只写服务端日志，对外统一提示，避免泄露表结构与 SQL 片段。
+// 响应头已发出时交回 Express 默认处理，避免二次写入。
 app.use((err, req, res, next) => {
-  console.error('[campus-mall] 请求处理失败:', err && err.message);
+  console.error('[campus-mall] 请求处理失败:', (err && err.message) || err);
   if (res.headersSent) {
     return next(err);
   }
-  const reason = (err && err.message) || '未知错误';
-  res.status(500).json({ code: 500, msg: '服务器错误: ' + reason });
+  if (err && err.isBusiness) {
+    return res.status(400).json({ code: 400, msg: err.message });
+  }
+  res.status(500).json({ code: 500, msg: '服务器繁忙，请稍后重试' });
 });
 
 // 进程级兜底：异步异常与未捕获异常只记录日志，不让进程直接退出

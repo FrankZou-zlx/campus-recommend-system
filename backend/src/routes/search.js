@@ -11,7 +11,8 @@ router.post('/log', auth, async (req, res) => {
     await query('INSERT INTO search_log(user_id,keyword) VALUES(?,?)', [req.user.id, keyword]);
     res.json({ code: 0 });
   } catch (e) {
-    res.status(500).json({ code: 500, msg: '记录失败: ' + e.message });
+    console.error('[search/log] 失败：', e.message);
+    res.status(500).json({ code: 500, msg: '记录失败' });
   }
 });
 
