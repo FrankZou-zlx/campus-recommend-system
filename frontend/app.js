@@ -62,6 +62,14 @@
         if (ins === userApi) { store.token = ''; localStorage.removeItem('token'); }
         else { store.adminToken = ''; localStorage.removeItem('adminToken'); }
         ElMessage.warning(d.msg || '登录已过期');
+      } else if (d && d.code === 403 && /禁用/.test(d.msg || '')) {
+        // 账号被管理员禁用：令牌本身还没过期，但所有请求都会被拒。
+        // 只弹提示、不清状态的话，用户会卡在页面上「每点一次弹一次错」，所以这里直接退出并回登录页。
+        store.token = '';
+        localStorage.removeItem('token');
+        store.user = null;
+        ElMessage.error(d.msg || '账号已被禁用');
+        go('login');
       } else if (d && d.code !== 0 && d.msg) {
         // 任何非成功响应都必须让用户“看得见”，绝不静默失败
         ElMessage.error(d.msg);
@@ -679,7 +687,21 @@
       }
       async function pay(o) { await U('put', '/order/pay/' + o.id); load(); }
       async function confirm(o) { await U('put', '/order/confirm/' + o.id); load(); }
-      async function cancel(o) { await U('put', '/order/cancel/' + o.id); load(); }
+      async function cancel(o) {
+        // 取消不可撤销（订单变为已取消后无法再恢复），点一下就执行容易误触，
+        // 与后台「下架/禁用」保持一致，先二次确认。
+        try {
+          await ElMessageBox.confirm(
+            `确定取消订单 ${o.order_no} ？取消后商品库存会返还，该订单将无法恢复，需要重新下单。`,
+            '取消订单',
+            { type: 'warning', confirmButtonText: '确定取消', cancelButtonText: '再想想' }
+          );
+        } catch (e) {
+          return;
+        }
+        const d = await U('put', '/order/cancel/' + o.id);
+        if (d.code === 0) load();
+      }
       onMounted(load);
       return { orders, statusText, pay, confirm, cancel, money, go };
     },
@@ -1431,7 +1453,7 @@
             <div v-if="cfLoading" class="empty">正在根据行为数据计算商品相似度…</div>
             <template v-else-if="cf">
               <div class="cf-note">
-                算法：基于物品的协同过滤（Item-based CF）。把这些行为流水整理成「商品 × 用户」评分矩阵（浏览 1 / 加购 2 / 收藏 3 / 购买 4 分），
+                算法：基于物品的协同过滤（Item-based CF）。把这些行为流水整理成「商品 × 用户」评分矩阵（浏览 1 / 收藏 3 / 加购 4 / 购买 5 分），
                 两件商品被同一批人反复交互 → 余弦相似度高；推荐时把用户已交互商品与其它商品的相似度求和，取分数最高的 N 件，
                 所以每条推荐都能说清「因为你看过 / 买过 X」。
               </div>

@@ -68,6 +68,13 @@
         if (ins === userApi) { store.token = ''; localStorage.removeItem('token'); }
         else { store.adminToken = ''; localStorage.removeItem('adminToken'); }
         ElMessage.warning(d.msg || '登录已过期');
+      } else if (d && d.code === 403 && /禁用/.test(d.msg || '')) {
+        // 账号被禁用：令牌还没过期但请求已不可用，直接退出回登录页，避免卡在「点一次弹一次错」
+        store.token = '';
+        localStorage.removeItem('token');
+        store.user = null;
+        ElMessage.error(d.msg || '账号已被禁用');
+        go('login');
       } else if (d && d.code !== 0 && d.msg) {
         // 任何非成功响应都必须让用户“看得见”，绝不静默失败
         ElMessage.error(d.msg);
@@ -1430,7 +1437,7 @@
             <div v-if="cfLoading" class="empty">正在根据行为数据计算商品相似度…</div>
             <template v-else-if="cf">
               <div class="cf-note">
-                算法：基于物品的协同过滤（Item-based CF）。把这些行为流水整理成「商品 × 用户」评分矩阵（浏览 1 / 加购 2 / 收藏 3 / 购买 4 分），
+                算法：基于物品的协同过滤（Item-based CF）。把这些行为流水整理成「商品 × 用户」评分矩阵（浏览 1 / 收藏 3 / 加购 4 / 购买 5 分），
                 两件商品被同一批人反复交互 → 余弦相似度高；推荐时把用户已交互商品与其它商品的相似度求和，取分数最高的 N 件，
                 所以每条推荐都能说清「因为你看过 / 买过 X」。
               </div>
