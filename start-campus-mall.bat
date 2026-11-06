@@ -9,11 +9,14 @@ set "MYSQL_DATA=D:\workbuddy.file\2026-09-03-13-40-36\.mysql\data"
 set "MYSQL_BASE=C:\Program Files\MySQL\MySQL Server 8.0"
 
 REM ========== 找 node ==========
+REM 优先用 PATH 里的 node；找不到再退回 WorkBuddy 自带 node（版本号可能带后缀）
 set "NODE=node"
 where node >nul 2>nul
-if errorlevel 1 (
-  set "NODE=C:\Users\zlx59\.workbuddy\binaries\node\versions\22.22.2\node.exe"
-)
+if not errorlevel 1 goto :node_ready
+set "NODE=C:\Users\zlx59\.workbuddy\binaries\node\versions\22.22.2-6\node.exe"
+if exist "%NODE%" goto :node_ready
+set "NODE=C:\Users\zlx59\.workbuddy\binaries\node\versions\22.22.2\node.exe"
+:node_ready
 echo 使用 node: %NODE%
 
 REM ========== 1. 启动本地 MySQL（端口 3306） ==========
