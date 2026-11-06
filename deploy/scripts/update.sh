@@ -110,8 +110,11 @@ if [ -d "$SRC/portfolio" ]; then
     cp -r "$SRC/portfolio/." "$DST/portfolio/"
   fi
 fi
-# 自检 / 开发用文件（_ 开头）不该出现在服务器上：frontend 里会被公开访问，demo 里也没必要
-rm -f "$DST"/frontend/_* "$DST"/demo/_* 2>/dev/null || true
+# 自检 / 开发用文件不该出现在服务器上：Nginx 的 location / 对存在的文件会直接回源，
+# frontend/ 下任何多余文件都能被公网下载，所以必须在这里清干净。
+#   _*          —— 本地自检脚本
+#   serve.cjs   —— 本地开发用的零依赖静态服务器；服务器上静态资源由 Nginx 托管，用不到它
+rm -f "$DST"/frontend/_* "$DST"/demo/_* "$DST"/frontend/serve.cjs 2>/dev/null || true
 chown -R "$RUN_USER:$RUN_USER" "$DST"
 c_ok "代码已同步"
 
