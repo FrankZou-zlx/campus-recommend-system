@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
-const { adminAuth } = require('../middleware/auth');
+const { adminAuth, invalidateAuthCache } = require('../middleware/auth');
 const { cfInsight } = require('../services/recommend');
 const { sensitiveError } = require('../utils/sensitive');
 
@@ -68,6 +68,8 @@ router.put('/user/:id/status', adminAuth, async (req, res) => {
   }
 
   await query('UPDATE user SET status=? WHERE id=?', [status, user.id]);
+  // auth 中间件对账号状态做了 5 秒缓存，这里主动失效，保证「禁用」仍是即时生效
+  invalidateAuthCache(user.id);
   res.json({
     code: 0,
     msg: status === 0 ? `已禁用「${user.nickname || user.id}」` : `已启用「${user.nickname || user.id}」`,
@@ -250,7 +252,11 @@ router.get('/charts', adminAuth, async (req, res) => {
     const byDay = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86400000);
-      const key = d.toISOString().slice(0, 10);
+      // SQL 里的 DATE_FORMAT / CURDATE 用的是数据库本地时区（东八区），
+      // 日期键必须同样按本地日历拼。用 toISOString() 会取 UTC 日期，
+      // 每天 00:00–08:00 之间生成的第一天/最后一天会与 SQL 结果错开一天，
+      // 表现为图表横轴整体偏移、当天订单数恒为 0。
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const hit = map.get(String(key)) || null;
       // MySQL 的 DATE 值可能被 mysql2 转成 Date，这里统一按 YYYY-MM-DD 处理
       byDay.push({

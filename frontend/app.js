@@ -543,8 +543,8 @@
       const loading = ref(true);
       async function load() {
         const d = await U('get', '/product/detail/' + id);
+        // 详情对游客开放：未登录也能看，点加购/购买/私信时再由 requireLogin() 提示登录
         if (d.code === 0) product.value = d.data;
-        else if (d.code === 401) go('login');
         loading.value = false;
       }
       async function addCart() {

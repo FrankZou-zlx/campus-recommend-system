@@ -547,8 +547,8 @@
       const loading = ref(true);
       async function load() {
         const d = await U('get', '/product/detail/' + id);
+        // 详情对游客开放，与正式前端保持一致
         if (d.code === 0) product.value = d.data;
-        else if (d.code === 401) go('login');
         loading.value = false;
       }
       async function addCart() {

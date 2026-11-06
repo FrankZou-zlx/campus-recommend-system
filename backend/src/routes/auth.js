@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { query } = require('../db');
 const { sign } = require('../middleware/auth');
+const guard = require('../utils/login-guard');
 
 // 手机号必须为 11 位数字（前端已实时提示，这里做最后一道兜底）
 function phoneError(phone) {
@@ -48,17 +49,31 @@ router.post('/login', async (req, res) => {
     const { password } = req.body;
     if (!username) return res.status(400).json({ code: 400, msg: '请输入账号（不能只输入空格）' });
     if (!password) return res.status(400).json({ code: 400, msg: '请输入密码' });
+    const gate = guard.check(req, username);
+    if (!gate.allowed) {
+      res.set('Retry-After', String(gate.retryAfter));
+      return res.status(429).json({
+        code: 429,
+        msg: `尝试次数过多，请 ${Math.ceil(gate.retryAfter / 60)} 分钟后再试`,
+      });
+    }
     const users = await query('SELECT * FROM user WHERE username=?', [username]);
     // 安全 + 体验兼顾：不区分“账号不存在”和“密码错误”，统一提示，避免被撞库探测
-    if (!users.length) return res.status(400).json({ code: 400, msg: '账号或密码不正确' });
-    const u = users[0];
-    if (!bcrypt.compareSync(password || '', u.password))
+    if (!users.length) {
+      guard.recordFailure(req, username);
       return res.status(400).json({ code: 400, msg: '账号或密码不正确' });
+    }
+    const u = users[0];
+    if (!bcrypt.compareSync(password || '', u.password)) {
+      guard.recordFailure(req, username);
+      return res.status(400).json({ code: 400, msg: '账号或密码不正确' });
+    }
     // 被管理员禁用的账号禁止登录。
     // 放在密码校验之后：不知道密码的人无法通过这条提示反推出「这个账号被处理过」。
     if (Number(u.status) === 0) {
       return res.status(403).json({ code: 403, msg: '该账号已被管理员禁用，请联系管理员' });
     }
+    guard.recordSuccess(req, username);
     const token = sign({ id: u.id, role: u.role });
     res.json({
       code: 0, msg: '登录成功',
@@ -77,11 +92,27 @@ router.post('/admin/login', async (req, res) => {
     const { password } = req.body;
     if (!username) return res.status(400).json({ code: 400, msg: '请输入管理员账号（不能只输入空格）' });
     if (!password) return res.status(400).json({ code: 400, msg: '请输入管理员密码' });
+    // 后台同样限流，且用独立前缀，避免与普通用户登录共用计数
+    const scope = 'admin:' + username;
+    const gate = guard.check(req, scope);
+    if (!gate.allowed) {
+      res.set('Retry-After', String(gate.retryAfter));
+      return res.status(429).json({
+        code: 429,
+        msg: `尝试次数过多，请 ${Math.ceil(gate.retryAfter / 60)} 分钟后再试`,
+      });
+    }
     const rows = await query('SELECT * FROM admin WHERE username=?', [username]);
-    if (!rows.length) return res.status(400).json({ code: 400, msg: '管理员账号或密码不正确' });
-    const a = rows[0];
-    if (!bcrypt.compareSync(password || '', a.password))
+    if (!rows.length) {
+      guard.recordFailure(req, scope);
       return res.status(400).json({ code: 400, msg: '管理员账号或密码不正确' });
+    }
+    const a = rows[0];
+    if (!bcrypt.compareSync(password || '', a.password)) {
+      guard.recordFailure(req, scope);
+      return res.status(400).json({ code: 400, msg: '管理员账号或密码不正确' });
+    }
+    guard.recordSuccess(req, scope);
     const token = sign({ id: a.id, role: 'admin' });
     res.json({ code: 0, msg: '后台登录成功', data: { token } });
   } catch (e) {

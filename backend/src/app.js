@@ -46,8 +46,29 @@ app.use('/api/admin', require('./routes/admin'));
 // 健康检查：部署脚本与探活用
 app.get('/api/health', (req, res) => res.json({ code: 0, msg: 'ok' }));
 
-// Prometheus 指标端点，供 Prometheus 定时拉取
-app.get('/metrics', async (req, res) => {
+/**
+ * /metrics 只允许内网访问
+ * ---------------------------------------------------------------------------
+ * 指标里含接口路径、QPS、内存等信息，不该对公网敞开。生产环境由 Nginx
+ * 只反代 /api 和 /uploads，本来就不会转发 /metrics；这里再挡一层，
+ * 防止后端端口被直接暴露时泄露。Prometheus 与 Grafana 都从 127.0.0.1 拉取。
+ */
+function isInternalAddress(raw) {
+  const ip = String(raw || '').replace(/^::ffff:/, '');
+  if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.')) return true;
+  if (ip.startsWith('10.') || ip.startsWith('192.168.') || ip.startsWith('169.254.')) return true;
+  const m = /^172\.(\d{1,3})\./.exec(ip);
+  if (m && Number(m[1]) >= 16 && Number(m[1]) <= 31) return true;
+  const extra = (process.env.METRICS_ALLOW || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return extra.includes(ip);
+}
+
+app.get('/metrics', (req, res, next) => {
+  if (!isInternalAddress(req.socket.remoteAddress)) {
+    return res.status(403).json({ code: 403, msg: '指标接口仅允许内网访问' });
+  }
+  next();
+}, async (req, res) => {
   res.set('Content-Type', register.contentType);
   const metricsText = await register.metrics();
   res.end(metricsText);

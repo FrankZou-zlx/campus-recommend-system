@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { query } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, optionalAuth } = require('../middleware/auth');
 const { pinyin } = require('pinyin-pro');
 const { sensitiveError } = require('../utils/sensitive');
 const { isRealImage, removeQuietly } = require('../utils/image-check');
@@ -139,8 +139,10 @@ router.get('/list', async (req, res) => {
   res.json({ code: 0, data: { list: rows, total: totalRow.cnt } });
 });
 
-// 商品详情（公开，登录用户浏览时记录 view 行为）
-router.get('/detail/:id', auth, async (req, res) => {
+// 商品详情（公开，游客也能看；登录用户浏览时额外记录 view 行为）
+// 列表本来就是公开的，详情却要求登录会把游客直接踢到登录页，链路是断的。
+// 加购 / 收藏 / 私信这些需要身份的操作仍走 auth，由前端 requireLogin() 拦截。
+router.get('/detail/:id', optionalAuth, async (req, res) => {
   const id = req.params.id;
   const [p] = await query(
     `SELECT p.*, c.name AS category_name, u.nickname AS seller_name, u.seller_mode AS seller_mode
@@ -155,8 +157,8 @@ router.get('/detail/:id', auth, async (req, res) => {
   }
   const images = await query('SELECT url FROM product_image WHERE product_id=?', [id]);
   p.images = images.map(i => i.url);
-  // 登录用户记录浏览行为
-  await recordInteraction(req.user.id, id, 'view', 1);
+  // 登录用户记录浏览行为；游客浏览不计入协同过滤的行为权重
+  if (req.user) await recordInteraction(req.user.id, id, 'view', 1);
   res.json({ code: 0, data: p });
 });
 
