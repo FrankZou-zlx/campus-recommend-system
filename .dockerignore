@@ -8,8 +8,7 @@ backend/node_modules
 backend/uploads
 backend/.env
 
-demo/_*.js
-demo/_*.html
+demo/_*
 .shots
 .patch*.js
 *.bat

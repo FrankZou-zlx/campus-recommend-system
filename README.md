@@ -181,8 +181,7 @@ campus-mall/
 │   ├── app.js               # 整个应用逻辑（vue3 createApp + Element Plus）
 │   ├── serve.cjs            # 零依赖静态服务器 + /api 代理（端口 8080）
 │   └── vendor/              # 已下载的 vue.global.js / element-plus.* / axios / 中文包
-├── demo/                    # 公开演示版源码（浏览器内跑协同过滤，localStorage 持久化）
-├── demo-dist/               # 演示版纯净部署目录（只含运行需要的文件）
+├── demo/                    # 公开演示版（浏览器内跑协同过滤，localStorage 持久化）
 ├── docs/
 │   ├── RUNBOOK.md           # ★ 运维手册
 │   └── incident/            # ★ 5 份故障复盘

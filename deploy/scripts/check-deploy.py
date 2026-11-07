@@ -32,7 +32,7 @@ for s, svc in svcs.items():
 check('Dockerfile.backend 引用的 backend/package.json 存在', exists('backend/package.json'))
 check('Dockerfile.backend 引用的 backend/package-lock.json 存在', exists('backend/package-lock.json'))
 check('Dockerfile.frontend 引用的 frontend/ 存在', exists('frontend'))
-check('Dockerfile.frontend 引用的 demo-dist/ 存在', exists('demo-dist'))
+check('Dockerfile.frontend 引用的 demo/ 存在', exists('demo'))
 check('Dockerfile.frontend 引用的 nginx 配置存在', exists('deploy/docker/nginx-docker.conf'))
 check('compose 挂载的 init.sql 存在', exists('deploy/mysql/init.sql'))
 
@@ -74,7 +74,7 @@ check('裸机 nginx root 与脚本拷贝位置一致',
 check('裸机 nginx 反代端口与后端默认端口一致',
       'proxy_pass         http://127.0.0.1:3001;' in bare_nginx)
 check('裸机 nginx 的 /demo 目录与脚本拷贝的 demo 目录一致',
-      'root  /opt/campus-mall;' in bare_nginx and 'cp -r "$SRC_DIR/demo-dist" "$APP_DIR/demo"' in script)
+      'root  /opt/campus-mall;' in bare_nginx and '/demo/_*' in script)
 check('脚本把 nginx / systemd / env 都安装到位',
       all(x in script for x in ['/etc/nginx/conf.d/campus-mall.conf',
                                 '/etc/systemd/system/campus-mall-api.service',

@@ -46,7 +46,7 @@ git clone <你的仓库地址> /root/campus-mall
 ls /mnt/hgfs/          # 挂载后可直接 cp
 ```
 
-> 传上去后确认 `ls /root/campus-mall` 能看到 `backend/ frontend/ demo-dist/ deploy/ docker-compose.yml`。
+> 传上去后确认 `ls /root/campus-mall` 能看到 `backend/ frontend/ demo/ deploy/ docker-compose.yml`。
 
 ---
 
@@ -201,7 +201,7 @@ node -v && npm -v
 ```bash
 useradd -r -s /sbin/nologin -d /opt/campus-mall campus
 mkdir -p /opt/campus-mall /etc/campus-mall
-cp -r backend frontend demo-dist deploy /opt/campus-mall/     # demo-dist 可选
+cp -r backend frontend demo deploy /opt/campus-mall/
 mkdir -p /opt/campus-mall/backend/uploads/products
 chown -R campus:campus /opt/campus-mall
 ```

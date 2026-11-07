@@ -155,10 +155,11 @@ tar -cf - \
   --exclude='./.git' \
   --exclude='./.patch*.js' \
   ./ | tar -xf - -C "$APP_DIR"
-# 演示版（免后端）单独放一份，供 /demo/ 访问；没有就跳过
-if [ -d "$SRC_DIR/demo-dist" ]; then
-  rm -rf "$APP_DIR/demo"; cp -r "$SRC_DIR/demo-dist" "$APP_DIR/demo"
-  ok "已复制公开演示版到 ${APP_DIR}/demo"
+# 演示版（免后端）已随上面的 tar 一起同步到 /demo/，这里只清掉自检工具，
+# 避免 _tplcheck.js 这类内部脚本被公网直接下载（与 update.sh 的处理保持一致）
+if [ -d "$APP_DIR/demo" ]; then
+  rm -f "$APP_DIR"/demo/_* 2>/dev/null || true
+  ok "公开演示版已就位（${APP_DIR}/demo）"
 fi
 ok "代码已复制到 ${APP_DIR}"
 
