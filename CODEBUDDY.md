@@ -24,8 +24,9 @@ backend/
   src/app.js            入口：挂载 11 个路由、/metrics、错误兜底
   src/routes/           按领域拆分的路由（auth/user/product/cart/order/message/...）
   src/middleware/       auth.js（JWT 验签 + 账号状态校验 + TTL 缓存 + optionalAuth）
-  src/utils/            sensitive.js（敏感词）、login-guard.js（登录限流）
-  src/services/         ai-seller.js（AI 卖家自动回复）
+  src/utils/            sensitive.js（敏感词）、login-guard.js（登录限流）、
+                        metrics.js（prom-client 指标）、image-check.js（上传魔数校验）
+  src/services/         recommend.js（★ 协同过滤核心）、ai-seller.js（AI 卖家自动回复）
   src/data/             sensitive-words.txt 词库
   sql/                  schema.sql + 幂等迁移脚本
 frontend/
@@ -35,7 +36,7 @@ frontend/
   vendor/               内置 vue / element-plus / axios，不依赖 CDN
 demo/                   公网演示版，与 frontend 是两套代码，改功能要同步两处
 deploy/                 安装/更新脚本、Nginx、systemd、Docker、自检脚本
-docs/                   RUNBOOK 运维手册 + incident 故障复盘
+docs/                   RUNBOOK 运维手册 + incident 故障复盘 + 项目文件地图（改什么去哪里）
 ops/monitor/            指标采集、告警判定、SMTP 通知
 ```
 
